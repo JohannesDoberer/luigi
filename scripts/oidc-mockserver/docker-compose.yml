@@ -9,8 +9,12 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       API_SCOPES_INLINE: |
         [
-          "some-app-scope-1",
-          "some-app-scope-2"
+          {
+            "Name": "some-app-scope-1"
+          },
+          {
+            "Name": "some-app-scope-2"
+          }
         ]
       API_RESOURCES_INLINE: |
         [
@@ -28,5 +32,12 @@ services:
           }
         ]
       CLIENTS_CONFIGURATION_PATH: /tmp/config/clients-config.json
+      SERVER_OPTIONS_INLINE: |
+        {
+          "Authentication": {
+            "CookieSameSiteMode": "Lax"
+          }
+        }
+
     volumes:
       - .:/tmp/config:ro
