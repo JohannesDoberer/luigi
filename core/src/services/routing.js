@@ -143,8 +143,8 @@ class RoutingClass {
     return LuigiConfig.getConfigValue('routing.useHashRouting')
       ? window.location.hash.replace('#', '') // TODO: GenericHelpers.getPathWithoutHash(window.location.hash) fails in ContextSwitcher
       : window.location.search
-      ? GenericHelpers.trimLeadingSlash(window.location.pathname) + window.location.search
-      : GenericHelpers.trimLeadingSlash(window.location.pathname);
+        ? GenericHelpers.trimLeadingSlash(window.location.pathname) + window.location.search
+        : GenericHelpers.trimLeadingSlash(window.location.pathname);
   }
 
   async handleRouteChange(path, component, iframeElement, config, withoutSync) {
@@ -170,7 +170,7 @@ class RoutingClass {
               this.handleRouteChange(path, component, iframeElement, config) &&
               history.replaceState(window.state, '', newUrl);
           },
-          () => {}
+          () => { }
         );
         return;
       }
@@ -189,15 +189,25 @@ class RoutingClass {
       const pathUrlRaw = path && path.length ? GenericHelpers.getPathWithoutHash(path) : '';
       const { nodeObject, pathData } = await Navigation.extractDataFromPath(path);
       const viewUrl = nodeObject.viewUrl || '';
-      const hasChildrenNode = (nodeObject.children && nodeObject.children.length > 0) || false;
+      const hasChildrenNode =
+        (nodeObject.children && Array.isArray(nodeObject.children) && nodeObject.children.length > 0) ||
+        nodeObject.children ||
+        false;
       const intendToHaveEmptyViewUrl =
         (nodeObject.intendToHaveEmptyViewUrl && nodeObject.intendToHaveEmptyViewUrl === true) || false;
 
-      if (viewUrl.trim() === '' && !hasChildrenNode && !intendToHaveEmptyViewUrl) {
-        console.warn('This node was configured an empty viewUrl. Please double check it.');
+      if (!nodeObject.compound && viewUrl.trim() === '' && !hasChildrenNode && !intendToHaveEmptyViewUrl) {
+        console.warn(
+          "The intended target route can't be accessed since it has neither a viewUrl nor children. This is most likely a misconfiguration."
+        );
 
         // redirect to root when this empty viewUrl node be reached directly
-        if (!previousCompData.viewUrl) {
+        if (
+          !(
+            previousCompData &&
+            (previousCompData.viewUrl || (previousCompData.currentNode && previousCompData.currentNode.compound))
+          )
+        ) {
           const rootPathData = await Navigation.getNavigationPath(
             LuigiConfig.getConfigValueAsync('navigation.nodes'),
             '/'
@@ -308,10 +318,10 @@ class RoutingClass {
         Object.assign({}, newNodeData, {
           previousNodeValues: previousCompData
             ? {
-                viewUrl: previousCompData.viewUrl,
-                isolateView: previousCompData.isolateView,
-                viewGroup: previousCompData.viewGroup
-              }
+              viewUrl: previousCompData.viewUrl,
+              isolateView: previousCompData.isolateView,
+              viewGroup: previousCompData.viewGroup
+            }
             : {}
         })
       );
