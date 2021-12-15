@@ -3,7 +3,7 @@
 const chai = require('chai');
 const assert = chai.assert;
 const sinon = require('sinon');
-import { AuthHelpers, NavigationHelpers, GenericHelpers, RoutingHelpers } from '../../../src/utilities/helpers';
+import { AuthHelpers, NavigationHelpers, RoutingHelpers } from '../../../src/utilities/helpers';
 import { LuigiAuth, LuigiConfig } from '../../../src/core-api';
 import { Routing } from '../../../src/services/routing';
 import { Navigation } from '../../../src/navigation/services/navigation';
@@ -441,6 +441,85 @@ describe('Navigation-helpers', () => {
         assert.equal(titleData.icon, 'curriculum');
         assert.equal(titleData.label, 'Project');
       });
+    });
+
+    describe('groupNodesBy', () => {
+      let nodes;
+      beforeEach(() => {
+        nodes = [
+          {
+            category: '1',
+            pathSegment: 'luigi',
+            label: 'luigi',
+            viewUrl: '/microfrontend.html'
+          },
+          {
+            pathSegment: 'amfe',
+            label: 'a mfe',
+            viewUrl: '/microfrontend.html',
+            category: { label: 'test' }
+          },
+          {
+            pathSegment: 'amfe',
+            label: 'a mfe',
+            viewUrl: '/microfrontend.html',
+            category: { label: 'luigi' }
+          },
+          {
+            category: 'luigi',
+            pathSegment: 'luigi',
+            label: 'luigi',
+            viewUrl: '/microfrontend.html'
+          }
+        ];
+      });
+      it('group nodes by category id', () => {
+        nodes[1].category.id = '1';
+        nodes[1].category.collapsible = true;
+        const result = NavigationHelpers.groupNodesBy(nodes, 'category', true);
+        assert.deepEqual(Object.keys(result), ['luigi', 'test']);
+        assert.deepEqual(result.luigi['metaInfo'], { label: 'luigi', order: 1 });
+        assert.deepEqual(result.test['metaInfo'], {
+          label: 'test',
+          order: 0,
+          id: '1',
+          collapsible: true,
+          categoryUid: '1'
+        });
+      });
+      it('group nodes by category label', () => {
+        nodes[1].category.collapsible = true;
+        const result = NavigationHelpers.groupNodesBy(nodes, 'category', true);
+        assert.deepEqual(Object.keys(result), ['1', 'test', 'luigi']);
+        assert.deepEqual(result.test['metaInfo'], { categoryUid: 'test', label: 'test', collapsible: true, order: 1 });
+      });
+    });
+  });
+  describe('generate tooltip text', () => {
+    let node;
+    beforeEach(() => {
+      node = {
+        label: 'LuigiNode'
+      };
+      sinon.stub(LuigiConfig, 'getConfigValue');
+    });
+    afterEach(() => {
+      sinon.restore();
+    });
+    it('tooltip text on node', () => {
+      node.tooltipText = 'MarioNode';
+      assert.equal(NavigationHelpers.generateTooltipText(node, 'LuigiNode'), 'MarioNode');
+    });
+    it('tooltip turned off', () => {
+      node.tooltipText = false;
+      assert.equal(NavigationHelpers.generateTooltipText(node, 'LuigiNode'), '');
+    });
+    it('tooltip not defined', () => {
+      assert.equal(NavigationHelpers.generateTooltipText(node, 'LuigiNode'), 'LuigiNode');
+    });
+    it('tooltip turned off used defaults', () => {
+      LuigiConfig.getConfigValue.returns(false);
+      assert.equal(NavigationHelpers.generateTooltipText(node, 'LuigiNode'), '');
     });
   });
   describe('generate tooltip text', () => {
