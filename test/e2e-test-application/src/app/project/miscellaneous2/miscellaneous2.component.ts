@@ -1,32 +1,29 @@
-import { Component, OnInit } from '@angular/core';
-
+import { Component, OnInit, signal, ChangeDetectionStrategy } from '@angular/core';
 import { uxManager, addInitListener, addContextUpdateListener } from '@luigi-project/client';
 
 @Component({
   selector: 'app-miscellaneous2',
   templateUrl: './miscellaneous2.component.html',
-  styleUrls: ['./miscellaneous2.component.css']
+  styleUrls: ['./miscellaneous2.component.css'],
+  changeDetection: ChangeDetectionStrategy.Eager,
+  standalone: false
 })
 export class Miscellaneous2Component implements OnInit {
-  constructor() {}
-  consoleText: string = 'InitListener called';
+  consoleText = signal<string>('InitListener called');
 
   ngOnInit() {
-    addInitListener(context => {
-      this.consoleText = 'InitListener called';
+    addInitListener((context) => {
+      this.consoleText.set('InitListener called');
     });
-    addContextUpdateListener(context => {
-      this.consoleText = 'ContextUpdateListener called';
+    addContextUpdateListener((context) => {
+      this.consoleText.set('ContextUpdateListener called');
     });
-  }
-
-  showConsoleText() {
-    return this.consoleText;
   }
 
   openConfirmationModal() {
     uxManager()
       .showConfirmationModal({ body: 'Just a confirmation modal' })
-      .then(() => console.log('opended a confirmation modal'));
+      .then(() => console.log('opended a confirmation modal'))
+      .catch(() => console.log('rejected a confirmation modal'));
   }
 }

@@ -27,8 +27,9 @@ On this page, you can find more information about Luigi Client support libraries
 
 ## Angular Support Library
 
-The [ClientSupportAngular](https://github.com/SAP/luigi/tree/main/client-frameworks-support/client-support-angular/projects/client-support-angular) library provides several features which make it easier to run your Angular application inside the Luigi micro frontend framework.
+The [ClientSupportAngular](https://github.com/luigi-project/luigi/tree/main/client-frameworks-support/client-support-angular/projects/client-support-angular) library provides several features which make it easier to run your Angular application inside the Luigi micro frontend framework.
 
+> **NOTE:** Starting with version 20, this package will be aligned with Angular's major versioning. For example, '@luigi-project/client-support-angular@^20' will support '@angular/core@^20', and so on. 
 
 ### How to use the library
 
@@ -37,13 +38,20 @@ The [ClientSupportAngular](https://github.com/SAP/luigi/tree/main/client-framewo
 npm install @luigi-project/client-support-angular -s
 ```
 
-2. Once the library is imported and saved in your Angular project, you need to import the module `LuigiAngularSupportModule`:
+2. Once the library is imported and saved in your Angular project, add necessary providers in your app configuration:
+
+```javascript
+providers: [
+  provideLuigiAngular()
+]
+```
+
+> **NOTE:** For legacy Angular apps where **bootstrapModule** function is still in use, you need to import the module `LuigiAngularSupportModule` in your root NgModule:
 
 ```javascript
 imports: [
-  ........
-  ,LuigiAngularSupportModule
-],
+  LuigiAngularSupportModule
+]
 ```
 
 ### Features
@@ -61,7 +69,32 @@ These are the features provided by the library:
 
 You can inject this service inside your Angular items in order to:
 * Get the current (latest) [context](navigation-parameters-reference.md#context) that we received from Luigi Core
-* Provide an `Observable<Context>` where through subscribing, you can get any context change
+* Provide an `Observable<IContextMessage>` and `Signal<IContextMessage>` where through subscribing, you can get any context change
+
+```javascript
+contextSignal = signal<Context | undefined>(undefined);
+
+constructor(private luigiContextService: LuigiContextService) {
+  // check context data via Observable
+  luigiContextService.contextObservable()
+    .pipe(takeUntilDestroyed())
+    .subscribe((data: IContextMessage) => {
+      if (data) {
+        this.contextSignal.set(data.context || {});
+      }
+    });
+
+  // check context data via Signal
+  effect(() => {
+    const data: IContextMessage = luigiContextService.contextSignal();
+
+    if (data) {
+      this.contextSignal.set(data.context || {});
+    }
+  });
+}
+
+```
 
 **LuigiContextService** is an abstract class. Its implementation is in the **LuigiContextServiceImpl** class.
 If you need to change or extend the implementation, you can easily create a new class extending **LuigiContextServiceImpl**:
@@ -86,19 +119,48 @@ providers: [
  ```
 
 ### Preload component
+This library offers a preload component which allows Luigi to preload Angular micro frontends in the background and improving navigation performance when switching between view groups.
 
-In your Angular route configuration, you can add in any of the following preload components:
+#### Add the preload route
+```javascript
+import { LuigiPreloadComponent } from '@luigi-project/client-support-angular';
+...
+{ path: 'luigi-client-support-preload', component: LuigiPreloadComponent }
+```
+#### Example Luigi config
+To enable it in luigi config it needs to be set like this:
+```javascript
+Luigi.setConfig({
+            navigation: {
+                preloadViewGroups: true,
+                viewGroupSettings: {
+                    vg1: {
+                        preloadUrl: 'https://path.to.angular.app#/luigi-client-support-preload'
+                    }
+                },
+                nodes: () => [...]
+            }
+})
+```
+Detailed information can be found [here](https://docs.luigi-project.io/docs/navigation-parameters-reference?section=preloadviewgroups) and in the [advanced section](https://docs.luigi-project.io/docs/navigation-advanced?section=view-groups)
 
+### LuigiAutoRoutingService
+
+This service cannot be used directly, but it provides useful features on how to synchronize your Angular application with Luigi navigation. 
+
+For example, when the user navigates through different pages within a micro frontend, you can use this feature to update Luigi accordingly. (You can also find more information about this process in the [micro frontend routing](https://docs.luigi-project.io/docs/microfrontend-routing) document.)
+
+#### Examples
  ```javascript
-{path: 'luigi-client-support-preload',component: Sample1Component,data: { fromVirtualTreeRoot: true }}
-{path: 'luigi-client-support-preload',component: Sample1Component,data: { fromVirtualTreeRoot: : {"truncate": "*/projects"} }}
-{path: 'luigi-client-support-preload',component: Sample1Component,data: { fromVirtualTreeRoot: : {"truncate": "/projects"} }}
-{path: 'luigi-client-support-preload',component: Sample2Component,data: { luigiRoute: '/home/sample2' }}
-{path: 'luigi-client-support-preload',component: Sample2Component,data: { luigiRoute: '/home/sample2', fromContext: true}}
-{path: 'luigi-client-support-preload',component: Sample2Component,data: { luigiRoute: '/home/sample2', fromContext: 'localContext'}}
+{path: 'sample1',component: Sample1Component, data: { fromVirtualTreeRoot: true }}
+{path: 'sample2',component: Sample2Component, data: { fromVirtualTreeRoot: : {"truncate": "*/projects"} }}
+{path: 'sample3',component: Sample3Component, data: { fromVirtualTreeRoot: : {"truncate": "/projects"} }}
+{path: 'sample4',component: Sample4Component, data: { luigiRoute: '/home/sample4' }}
+{path: 'sample5',component: Sample5Component, data: { luigiRoute: '/home/sample5', fromContext: true}}
+{path: 'sample6',component: Sample6Component, data: { luigiRoute: '/home/sample6', fromContext: 'localContext'}}
  ```
 
-Under the hood, these components make use of Luigi's [linkManager](luigi-client-api.md#linkmanager) in the following way: 
+Under the hood, these components make use of Luigi's [linkManager](https://docs.luigi-project.io/docs/luigi-client-api?section=linkmanager) in the following way: 
 
 For `data: { fromVirtualTreeRoot: true }`, once we load Sample1Component, this Luigi Client API method is called:
  ```javascript
@@ -111,26 +173,20 @@ For `data: { fromVirtualTreeRoot: true }`, once we load Sample1Component, this L
  ```
  In the above case, the specified string (e.g. `projects`) will be cut off from the beginning of the current micro frontend route before being sent to Luigi Core. This can be useful when the micro frontend is not served under the webroot, but under a subfolder. If the truncate string starts with `*`, the route will be truncated after the first occurrence of the string following `*`.
 
-For `data: { luigiRoute: '/home/sample2' }`, this Luigi Client API method is called:
+For `data: { luigiRoute: '/home/sample4' }`, this Luigi Client API method is called:
  ```javascript
   luigiClient.linkManager().withoutSync().navigate(data.luigiRoute);
  ```
 
-For `data: { luigiRoute: '/home/sample2', fromContext: true }`, this Luigi Client API method is called:
+For `data: { luigiRoute: '/home/sample5', fromContext: true }`, this Luigi Client API method is called:
  ```javascript
   luigiClient.linkManager().fromClosestContext().withoutSync().navigate(data.luigiRoute);
  ```
 
-For `data: { luigiRoute: '/home/sample2', fromContext: 'localContext' }`, this Luigi Client API method is called:
+For `data: { luigiRoute: '/home/sample6', fromContext: 'localContext' }`, this Luigi Client API method is called:
  ```javascript
   luigiClient.linkManager().fromContext('localContext').withoutSync().navigate(data.luigiRoute);
  ```
-
-### LuigiAutoRoutingService
-
-This service cannot be used directly, but it provides useful features on how to synchronize your Angular application with Luigi navigation. 
-
-For example, when the user navigates through different pages within a micro frontend, you can use this feature to update Luigi accordingly. (You can also find more information about this process in the [micro frontend routing](microfrontend-routing.md) document.)
 
 #### LuigiRouteStrategy
 
@@ -197,7 +253,7 @@ To make mocking of Luigi Core easier, you can use a range of utility functions a
 
 ## UI5 Support Library
 ​
-The [Luigi Client UI5 Support Library](https://github.com/SAP/luigi/tree/main/client-frameworks-support/client-support-ui5) offers a set [features](#features) which make it easier to use the Luigi micro frontend framework with UI5 applications.  
+The [Luigi Client UI5 Support Library](https://github.com/luigi-project/luigi/tree/main/client-frameworks-support/client-support-ui5) offers a set [features](#features) which make it easier to use the Luigi micro frontend framework with UI5 applications.  
 ​
 ### How to use the library
 

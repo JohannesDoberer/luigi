@@ -1,0 +1,29 @@
+{
+  "source": {
+    "includePattern": ".+\\.ts(doc|x)?$",
+    "excludePattern": ".+\\.(test|spec).(ts|js)"
+  },
+  "plugins": [
+    "plugins/markdown",
+    "node_modules/jsdoc-babel"
+  ],
+  "babel": {
+    "extensions": ["ts", "tsx"],
+    "ignore": ["**/*.(test|spec).ts"],
+    "babelrc": false,
+    "assumptions": {
+      "noClassCalls": true,
+      "setClassMethods": true,
+      "setPublicClassFields": true
+    },
+    "presets": [
+      ["@babel/preset-env", { "targets": { "browsers": ["last 2 versions"] }, "useBuiltIns": "usage", "corejs": 3 }],
+      "@babel/preset-typescript"
+    ],
+    "plugins": [
+      "./docs/babel-plugin-add-method-bodies.js",
+      "@babel/plugin-transform-class-properties",
+      "@babel/plugin-transform-object-rest-spread"
+    ]
+  }
+}

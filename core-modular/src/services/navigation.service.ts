@@ -1,0 +1,1587 @@
+import type { Luigi } from '../core-api/luigi';
+import type { GlobalSearch } from '../types/global-search';
+import { UIModule } from '../modules/ui-module';
+import type {
+  AppSwitcher,
+  AppSwitcherItem,
+  BreadcrumbData,
+  BreadcrumbItem,
+  ContextSwitcher,
+  ContextSwitcherItem,
+  ExternalLink,
+  HistoryMethod,
+  LeftNavData,
+  NavigationOptions,
+  NavigationRequestBase,
+  NavigationRequestEvent,
+  NavigationRequestParams,
+  NavItem,
+  Node,
+  PathData,
+  ProductSwitcher,
+  ProductSwitcherItem,
+  ProfileItem,
+  ProfileSettings,
+  StatusBadgeType,
+  TabNavConfig,
+  TabNavData,
+  TopNavData,
+  UserInfo,
+  UserSettingsProfileMenuEntry
+} from '../types/navigation';
+import { AsyncHelpers } from '../utilities/helpers/async-helpers';
+import { AuthHelpers } from '../utilities/helpers/auth-helpers';
+import { ContextSwitcherHelpers } from '../utilities/helpers/context-switcher-helpers';
+import { EscapingHelpers } from '../utilities/helpers/escaping-helpers';
+import { GenericHelpers } from '../utilities/helpers/generic-helpers';
+import { GlobalSearchHelpers } from '../utilities/helpers/global-search-helpers';
+import { NavigationHelpers } from '../utilities/helpers/navigation-helpers';
+import { RoutingHelpers } from '../utilities/helpers/routing-helpers';
+import { TOP_NAV_DEFAULTS } from '../utilities/luigi-config-defaults';
+import { AuthLayerSvc } from './auth-layer.service';
+import { DirtyStatusService } from './dirty-status.service';
+import { ModalService } from './modal.service';
+import { NodeDataManagementService } from './node-data-management.service';
+import { serviceRegistry } from './service-registry';
+
+export class NavigationService {
+  modalService?: ModalService;
+  nodeDataManagementService?: NodeDataManagementService;
+  private previousBreadcrumbs: Record<string, BreadcrumbItem> = {};
+
+  constructor(private luigi: Luigi) {}
+
+  private getModalService(): ModalService {
+    if (!this.modalService) {
+      this.modalService = serviceRegistry.get(ModalService);
+    }
+    return this.modalService;
+  }
+
+  private getNodeDataManagementService(): NodeDataManagementService {
+    if (!this.nodeDataManagementService) {
+      this.nodeDataManagementService = serviceRegistry.get(NodeDataManagementService);
+    }
+    return this.nodeDataManagementService;
+  }
+
+  async getPathData(path: string): Promise<PathData> {
+    const cfg = this.luigi.getConfig();
+    let pathSegments = path?.split('/');
+
+    if (pathSegments?.length > 0 && pathSegments[0] === '') {
+      pathSegments = pathSegments.slice(1);
+    }
+
+    const globalContext = cfg.navigation?.globalContext || {};
+    let currentContext = globalContext;
+    let rootNode;
+
+    if (this.getNodeDataManagementService().hasRootNode()) {
+      rootNode = this.getNodeDataManagementService().getRootNode().node;
+    } else {
+      const nodesFromConfig = await this.luigi.getConfigValueAsync('navigation.nodes');
+
+      if (typeof nodesFromConfig === 'object' && !Array.isArray(nodesFromConfig)) {
+        rootNode = nodesFromConfig;
+
+        if (rootNode.pathSegment) {
+          rootNode.pathSegment = '';
+          console.warn('Root node must have an empty path segment. Provided path segment will be ignored.');
+        }
+      } else {
+        rootNode = { children: nodesFromConfig } as Node;
+      }
+
+      rootNode.children = await this.getChildren(rootNode, currentContext);
+      rootNode.children = this.prepareRootNodes(rootNode.children || [], currentContext);
+      this.getNodeDataManagementService().setRootNode(rootNode);
+    }
+
+    const rootContext = {
+      parentNavigationContexts: [] as string[],
+      ...(currentContext || {}),
+      ...(rootNode.context || {})
+    };
+    const pathParams: Record<string, any> = {};
+    const pathData: PathData = {
+      context: rootContext,
+      selectedNodeChildren: rootNode.children,
+      nodesInPath: [rootNode],
+      rootNodes: rootNode.children,
+      pathParams,
+      matchedPath: ''
+    };
+
+    if (rootNode.viewUrl && pathSegments.length === 0) {
+      pathData.selectedNode = rootNode;
+    } else {
+      for (const segment of pathSegments) {
+        if (pathData.selectedNodeChildren) {
+          const node = this.findMatchingNode(segment, pathData.selectedNodeChildren || []);
+          if (!node) {
+            // No matching node found; avoid logging full children to prevent circular JSON errors in tests
+            console.warn('No matching node found for segment:', segment);
+            break;
+          }
+          // node.context gets overwritten with the merged result (globalContext + nodeContext) below.
+          // We preserve the originally declared context so that subsequent calls (e.g. after setGlobalContext)
+          // merge against the raw value instead of the previously accumulated one.
+          if (!('_rawContext' in node)) {
+            node._rawContext = node.context;
+          }
+          const nodeContext = node._rawContext ?? {};
+          const mergedContext = NavigationHelpers.mergeContext(currentContext, nodeContext, node.navigationContext);
+          let substitutedContext = mergedContext;
+          if (node.pathSegment?.startsWith(':')) {
+            pathParams[node.pathSegment.replace(':', '')] = EscapingHelpers.sanitizeParam(segment);
+            substitutedContext = RoutingHelpers.substituteDynamicParamsInObject(mergedContext, pathParams);
+          }
+          currentContext = substitutedContext;
+          node.context = substitutedContext;
+          pathData.selectedNode = node;
+          if (pathData.selectedNode) {
+            pathData.nodesInPath?.push(pathData.selectedNode);
+          }
+
+          if (node.virtualTree || node._virtualTree) {
+            const virtualTreeChildren = this.buildVirtualTree(node, segment, pathParams);
+            if (virtualTreeChildren && virtualTreeChildren.length > 0) {
+              node.children = virtualTreeChildren;
+            }
+          }
+
+          pathData.selectedNodeChildren = await this.getChildren(node, currentContext);
+        }
+      }
+    }
+
+    const navPathSegments = pathData.nodesInPath?.filter((n) => n.pathSegment).map((n) => n.pathSegment) || [];
+    pathData.matchedPath =
+      pathSegments
+        .filter((segment, index) => {
+          return (
+            (navPathSegments[index] && navPathSegments[index].startsWith(':')) || navPathSegments[index] === segment
+          );
+        })
+        .join('/') || '';
+
+    return pathData;
+  }
+
+  findMatchingNode(urlPathElement: string, nodes: Node[]): Node | undefined {
+    let result: Node | undefined = undefined;
+    const segmentsLength = nodes.filter((n) => !!n.pathSegment).length;
+    const dynamicSegmentsLength = nodes.filter((n) => n.pathSegment && n.pathSegment.startsWith(':')).length;
+
+    if (segmentsLength > 1) {
+      if (dynamicSegmentsLength === 1) {
+        console.warn(
+          'Invalid node setup detected. \nStatic and dynamic nodes cannot be used together on the same level. Static node gets cleaned up. \nRemove the static node from the configuration to resolve this warning. \nAffected pathSegment:',
+          urlPathElement,
+          'Children:',
+          nodes
+        );
+        nodes = nodes.filter((n) => n.pathSegment && n.pathSegment.startsWith(':'));
+      }
+      if (dynamicSegmentsLength > 1) {
+        console.error(
+          'Invalid node setup detected. \nMultiple dynamic nodes are not allowed on the same level. Stopped navigation. \nInvalid Children:',
+          nodes
+        );
+        return undefined;
+      }
+    }
+    nodes.some((node) => {
+      if (
+        // Static nodes
+        node.pathSegment === urlPathElement ||
+        // Dynamic nodes
+        (node.pathSegment && node.pathSegment.startsWith(':'))
+      ) {
+        // Return first matching node
+        result = node;
+        return true;
+      }
+    });
+    return result;
+  }
+
+  async buildNavItems(
+    nodes: Node[],
+    selectedNode: Node | undefined,
+    pathData: PathData
+  ): Promise<{
+    items: NavItem[];
+  }> {
+    const catMap: Record<string, NavItem> = {};
+    const items: NavItem[] = [];
+    const orphanItems: NavItem[] = [];
+    // Consumer badge counters are never invoked here — a slow/hanging count() must not block
+    // the nav build. The engine passes counters through structurally and heads resolve them
+    // (and aggregate category/overflow totals) when they render.
+
+    for (const node of nodes) {
+      if (
+        !NavigationHelpers.isNodeAccessPermitted(
+          node,
+          this.getParentNode(pathData.selectedNode, pathData) as Node,
+          pathData?.selectedNode?.context || {},
+          this.luigi
+        )
+      ) {
+        continue;
+      }
+
+      const externalLink = node.externalLink ? { ...node.externalLink } : undefined;
+      let nodeHref = RoutingHelpers.getNodeHref(node, pathData?.pathParams, this.luigi);
+
+      if (externalLink?.url) {
+        const currentNode: Node = { ...node };
+
+        if (selectedNode?.context) {
+          currentNode.context = { ...currentNode.context, ...selectedNode.context };
+        }
+
+        const nodeData = { ...currentNode, viewUrl: externalLink.url };
+        const pathParams = pathData?.pathParams ? pathData.pathParams : {};
+
+        externalLink.url = RoutingHelpers.substituteViewUrl(nodeData, pathParams, undefined, this.luigi);
+        nodeHref = externalLink.url;
+      }
+
+      if (node.statusBadge) {
+        const typeMap: Record<StatusBadgeType, string> = {
+          critical: 'Critical',
+          informative: 'Information',
+          negative: 'Negative',
+          neutral: 'Neutral',
+          positive: 'Positive'
+        };
+
+        node.statusBadge.type = (typeMap[node.statusBadge.type] || 'Neutral') as any;
+      }
+
+      const isCategoryValid =
+        node.category && (typeof node.category === 'string' || node.category.id || node.category.label);
+
+      if (isCategoryValid) {
+        const catId = node.category.id || node.category.label || node.category;
+        const catLabel = this.luigi.i18n().getTranslation(node.category.label || node.category.id || node.category);
+        let catNode: NavItem = catMap[catId];
+
+        if (!catNode) {
+          catNode = {
+            // Badge counters are never invoked or aggregated by the engine. Heads that render a
+            // category badge sum the counters of catNode.category.nodes themselves.
+            category: {
+              altText: node.category.altText || '',
+              icon: node.category.icon,
+              id: catId,
+              label: catLabel,
+              nodes: [],
+              tooltip: this.resolveTooltipText(node.category, catLabel),
+              navigateOnClick: node.category.navigateOnClick ?? false
+            }
+          };
+          catMap[catId] = catNode;
+          items.push(catNode);
+        }
+
+        catNode.category?.nodes?.push({
+          altText: node.altText,
+          externalLink,
+          href: nodeHref,
+          icon: node.icon,
+          label: node.label ? RoutingHelpers.resolveNodeLabel(node, this.luigi) : undefined,
+          node,
+          selected: node === selectedNode,
+          tooltip: node.label ? this.resolveTooltipText(node, node.label) : undefined
+        });
+      } else {
+        const navItem = {
+          altText: node.altText,
+          badgeCounter: node.badgeCounter,
+          externalLink,
+          href: nodeHref,
+          icon: node.icon,
+          label: node.label ? RoutingHelpers.resolveNodeLabel(node, this.luigi) : undefined,
+          node,
+          selected: node === selectedNode,
+          tooltip: node.label ? this.resolveTooltipText(node, node.label) : undefined
+        };
+
+        if (node.category && !isCategoryValid) {
+          orphanItems.push(navItem);
+        } else {
+          items.push(navItem);
+        }
+      }
+    }
+
+    items.unshift(...orphanItems);
+
+    items.forEach((item) => {
+      if (!item.category?.navigateOnClick || !item.category.nodes?.length) {
+        return;
+      }
+      const navigateOnClick = item.category.navigateOnClick;
+      const targetNode =
+        navigateOnClick === true
+          ? item.category.nodes.find((subItem) => subItem.node?.category?.navigateOnClick)
+          : item.category.nodes.find((subItem) => subItem.node?.pathSegment === navigateOnClick);
+      if (targetNode) {
+        targetNode.navigateOnClick = true;
+      }
+    });
+
+    return { items };
+  }
+
+  async getCurrentNode(path: string): Promise<Node | undefined> {
+    const pathData: PathData = await this.getPathData(path);
+    let node: Node | undefined = pathData.selectedNode;
+
+    if (!node && pathData.nodesInPath?.length === 1) {
+      node = pathData.nodesInPath[0];
+    }
+
+    if (
+      !node ||
+      !NavigationHelpers.isNodeAccessPermitted(
+        node,
+        this.getParentNode(pathData.selectedNode, pathData) as Node,
+        pathData?.selectedNode?.context || {},
+        this.luigi
+      )
+    ) {
+      return undefined;
+    }
+
+    return node;
+  }
+
+  async getPathParams(path: string): Promise<Record<string, any>> {
+    return (await this.getPathData(path)).pathParams;
+  }
+
+  /**
+   * getTruncatedChildren
+   *
+   * Returns an array of children without the childs below
+   * last node that has keepSelectedForChildren or tabnav enabled
+   * @param array children
+   * @returns array children
+   */
+  getTruncatedChildren(children: Node[]): Node[] {
+    let childToKeepFound = false;
+    let tabNavUnset = false;
+    let res: Node[] = [];
+
+    children
+      .slice()
+      .reverse()
+      .forEach((node: Node) => {
+        if (!childToKeepFound || node.tabNav) {
+          if (node.tabNav === false) {
+            // explicitly set to false
+            tabNavUnset = true;
+          }
+          if (node.keepSelectedForChildren === false) {
+            // explicitly set to false
+            childToKeepFound = true;
+          } else if (node.keepSelectedForChildren || (node.tabNav && !tabNavUnset)) {
+            childToKeepFound = true;
+            res = [];
+          }
+        }
+        res.push(node);
+      });
+
+    return res.reverse();
+  }
+
+  applyNavGroups(items: NavItem[]): NavItem[] {
+    const categoryById: Record<string, NavItem> = {};
+    const subCatEntries: NavItem[] = [];
+    const subCatDelim = '::';
+    const converted: NavItem[] = [];
+
+    items.forEach((entry) => {
+      if (entry.node) {
+        //single nodes
+        converted.push(entry);
+      } else if (entry.category) {
+        // categories
+        const catId = entry.category.id;
+        if (catId && catId.indexOf(subCatDelim) > 0) {
+          // subcat
+          subCatEntries.push(entry);
+        } else {
+          // supercat
+          const isGroup = entry.category.isGroup;
+          categoryById[catId] = entry;
+          converted.push(entry);
+        }
+      }
+    });
+
+    subCatEntries.forEach((entry) => {
+      const superCatId = entry.category?.id.split(subCatDelim)[0] || '';
+      const potentialSuperCat = categoryById[superCatId];
+      if (!potentialSuperCat) {
+        // dunno yet what to do in this case
+      } else if (potentialSuperCat.category) {
+        if (!potentialSuperCat.category.isGroup) {
+          // convert to super cat
+          potentialSuperCat.category.isGroup = true;
+        }
+        if (!potentialSuperCat.category.nodes) {
+          potentialSuperCat.category.nodes = [];
+        }
+        potentialSuperCat.category.nodes.push(entry);
+      }
+    });
+
+    return converted.filter((item) => {
+      if (item.category?.isGroup && item.category?.nodes && item.category?.nodes.length > 0) {
+        for (let index = 0; index < item.category?.nodes.length; index++) {
+          const subitem = item.category?.nodes[index];
+          if (
+            (subitem.node && !subitem.node.hideFromNav && subitem.node.label) ||
+            (subitem.category?.nodes &&
+              subitem.category.nodes.filter((node) => !node.node?.hideFromNav && node.node?.label).length > 0)
+          ) {
+            return true;
+          }
+        }
+        return false;
+      }
+      return true;
+    });
+  }
+
+  async getLeftNavData(path: string, pData?: PathData): Promise<LeftNavData> {
+    const pathData = pData ?? (await this.getPathData(path));
+    if (path === '' && pathData?.nodesInPath?.[0].viewUrl) {
+      return { items: [], basePath: '', selectedNode: {} as Node, navClick: undefined };
+    }
+    let navItems: NavItem[] = [];
+    const pathToLeftNavParent: Node[] = [];
+    let basePath = '';
+    pathData.nodesInPath?.forEach((nip) => {
+      if (nip.children) {
+        if (!nip.tabNav) {
+          basePath += '/' + (nip.pathSegment || '');
+        }
+        pathToLeftNavParent.push(nip);
+      }
+    });
+
+    const pathDataTruncatedChildren = this.getTruncatedChildren(pathData.nodesInPath ?? []);
+    let lastElement = [...pathDataTruncatedChildren].pop();
+    let selectedNode = pathData.selectedNode;
+    if (lastElement?.keepSelectedForChildren || lastElement?.tabNav) {
+      selectedNode = lastElement;
+      pathDataTruncatedChildren.pop();
+      lastElement = [...pathDataTruncatedChildren].pop();
+    }
+
+    let parentNode: Node | undefined;
+    let activeNode: Node | undefined = selectedNode;
+    if (!selectedNode) {
+      parentNode = [...pathToLeftNavParent].pop();
+      activeNode = undefined;
+    } else if (pathData.rootNodes.includes(selectedNode)) {
+      parentNode = selectedNode;
+      activeNode = undefined;
+    } else if (selectedNode.tabNav || selectedNode.keepSelectedForChildren) {
+      parentNode = lastElement;
+    } else {
+      parentNode = [...pathToLeftNavParent].pop();
+    }
+
+    const children = (await this.getChildren(parentNode, parentNode?.context || {})) || [];
+    const navData = await this.buildNavItems(children, activeNode, pathData);
+
+    navItems = navData.items;
+
+    // convert
+    navItems = this.applyNavGroups(navItems);
+
+    return {
+      selectedNode: selectedNode || ({} as Node),
+      items: navItems,
+      basePath: basePath.replace(/\/\/+/g, '/'),
+      sideNavFooterText: this.luigi.getConfig().settings?.sideNavFooterText,
+      navClick: (item: NavItem) => (item.node ? this.navItemClick(item.node, pathData) : Promise.resolve())
+    };
+  }
+
+  async navItemClick(node: Node, pathData?: PathData): Promise<void> {
+    if (node.openNodeInModal) {
+      const fullPath = GenericHelpers.replaceVars(
+        RoutingHelpers.getNodePath(node),
+        pathData?.pathParams || {},
+        ':',
+        false
+      );
+      this.luigi.navigation().openAsModal(fullPath, node.openNodeInModal === true ? {} : node.openNodeInModal);
+      return;
+    }
+
+    const pathParams = pathData?.pathParams ? pathData.pathParams : {};
+    const dirtyStatusService = serviceRegistry.get(DirtyStatusService);
+    await dirtyStatusService.getUnsavedChangesModalPromise();
+
+    if (node.externalLink?.url) {
+      const currentNode: Node = { ...node };
+
+      if (pathData?.selectedNode?.context) {
+        currentNode.context = { ...currentNode.context, ...pathData.selectedNode.context };
+      }
+
+      const externalLink: ExternalLink = { ...currentNode.externalLink };
+      const nodeData = { ...currentNode, viewUrl: externalLink.url };
+
+      externalLink.url = RoutingHelpers.substituteViewUrl(nodeData, pathParams, undefined, this.luigi);
+      NavigationHelpers.openExternalLink(externalLink, pathParams);
+      return;
+    }
+
+    if (node.link) {
+      const isAbsolute = node.link.startsWith('/');
+      if (isAbsolute) {
+        return this.luigi.navigation().navigate(node.link);
+      }
+      const parentPath = node.parent ? RoutingHelpers.getNodePath(node.parent) : '';
+      const resolvedPath = `${parentPath}/${node.link}`.replace(/\/\/+/g, '/');
+      return this.luigi.navigation().navigate(resolvedPath);
+    }
+
+    let fullPath = RoutingHelpers.getNodePath(node);
+
+    fullPath = GenericHelpers.replaceVars(fullPath, pathParams, ':', false);
+    if (!fullPath && fullPath !== '') {
+      console.error(
+        'Navigation error: could not build path for the node. Check if pathSegment is defined for all nodes in the path and if there are no duplicate pathSegments on the same level.'
+      );
+      return;
+    }
+
+    return this.luigi.navigation().navigate(fullPath);
+  }
+
+  async getTopNavData(path: string, pData?: PathData): Promise<TopNavData> {
+    const cfg = this.luigi.getConfig();
+    const pathData: PathData = pData ?? (await this.getPathData(path));
+    const profileItems = cfg.navigation?.profile?.items?.length
+      ? JSON.parse(JSON.stringify(cfg.navigation.profile.items))
+      : [];
+    const appSwitcher =
+      cfg.navigation?.appSwitcher && this.getAppSwitcherData(cfg.navigation?.appSwitcher, cfg.settings?.header);
+    const headerTitle = NavigationHelpers.updateHeaderTitle(appSwitcher, pathData);
+
+    if (profileItems?.length) {
+      profileItems.forEach((item: ProfileItem) => {
+        item.label = this.luigi.i18n().getTranslation(item.label || '');
+        if (item.children?.length) {
+          item.children.forEach((child: ProfileItem) => {
+            child.label = this.luigi.i18n().getTranslation(child.label || '');
+          });
+        }
+      });
+    }
+
+    const logoutLabel =
+      this.luigi.i18n().getTranslation(cfg.navigation?.profile?.logout?.label) || TOP_NAV_DEFAULTS.logout.label;
+    const itemClick = (item: ProfileItem) => {
+      if (item.openNodeInModal && !item.externalLink?.url) {
+        this.luigi.navigation().openAsModal(item.link || '', item.openNodeInModal === true ? {} : item.openNodeInModal);
+      } else if (item.link) {
+        this.luigi.navigation().navigate(item.link);
+      } else if (item.externalLink?.url) {
+        NavigationHelpers.openExternalLink(item.externalLink);
+      }
+    };
+    const userSettingsEnabled = cfg.userSettings;
+    let userSettingsProfileMenuEntry: UserSettingsProfileMenuEntry = {};
+    if (userSettingsEnabled) {
+      userSettingsProfileMenuEntry = {
+        ...TOP_NAV_DEFAULTS.userSettingsProfileMenuEntry,
+        ...cfg.userSettings?.userSettingsProfileMenuEntry
+      };
+    }
+    const profileSettings: ProfileSettings = {
+      authEnabled: this.luigi.auth().isAuthorizationEnabled(),
+      signedIn: this.luigi.auth().isAuthorizationEnabled() && AuthHelpers.isLoggedIn(),
+      items: profileItems,
+      itemClick,
+      logout: {
+        altText:
+          this.luigi.i18n().getTranslation(cfg.navigation?.profile?.logout?.altText) || TOP_NAV_DEFAULTS.logout.label,
+        label: logoutLabel,
+        icon: cfg.navigation?.profile?.logout?.icon || TOP_NAV_DEFAULTS.logout.icon,
+        testId: cfg.navigation?.profile?.logout?.testId || NavigationHelpers.prepareForTests(logoutLabel),
+        doLogout: () => {
+          AuthLayerSvc.logout();
+        }
+      },
+      settings: {
+        ...userSettingsProfileMenuEntry,
+        openUserSettings: () => {
+          this.luigi.ux().openUserSettings();
+        }
+      },
+      onUserInfoUpdate: (fn) => {
+        this.luigi.getConfigValueAsync('navigation.profile.staticUserInfoFn').then((userInfo) => {
+          if (userInfo) {
+            fn(userInfo);
+          } else {
+            AuthLayerSvc.getUserInfoStore().subscribe((uInfo: UserInfo) => {
+              fn(uInfo);
+            });
+          }
+        });
+      }
+    };
+
+    const userGlobalSearch: GlobalSearch | undefined = cfg?.globalSearch;
+    const selectedNode: Node | undefined = pathData.selectedNode;
+    const activeNode: Node | undefined =
+      selectedNode && pathData.rootNodes.includes(selectedNode) ? selectedNode : undefined;
+    const contextSwitcher = await this.buildContextSwitcher();
+    const productSwitcher: ProductSwitcher = {
+      ...cfg.navigation?.productSwitcher,
+      productSwitcherItemClick: (item: ProductSwitcherItem) => {
+        if (item.externalLink?.url) {
+          NavigationHelpers.openExternalLink(item.externalLink);
+        } else if (item.link) {
+          this.luigi.navigation().navigate(item.link);
+        }
+      }
+    };
+    const navData = await this.buildNavItems(pathData.rootNodes, activeNode, pathData);
+
+    let globalSearch: GlobalSearch | undefined = userGlobalSearch;
+
+    if (userGlobalSearch?.searchProvider?.inputPlaceholder) {
+      globalSearch = {
+        ...globalSearch,
+        searchProvider: {
+          ...globalSearch?.searchProvider,
+          inputPlaceholder: GlobalSearchHelpers.getSearchPlaceholder(this.luigi)
+        }
+      };
+    }
+
+    if (userGlobalSearch?.searchFieldCentered) {
+      globalSearch = {
+        ...globalSearch,
+        searchFieldCentered: !!this.luigi.getConfigValue('settings.experimental.globalSearchCentered')
+      };
+    }
+
+    let logoAltText = '';
+
+    if (typeof cfg.settings?.header?.altText === 'string') {
+      logoAltText = this.luigi.i18n().getTranslation(cfg.settings.header.altText);
+    }
+
+    return {
+      appTitle: headerTitle || cfg.settings?.header?.title,
+      favicon: cfg.settings?.header?.favicon,
+      globalSearch,
+      isHeaderDisabled: !!cfg.settings?.header?.disabled,
+      logo: cfg.settings?.header?.logo,
+      logoAltText,
+      topNodes: navData.items,
+      contextSwitcher,
+      productSwitcher,
+      profile: this.luigi.auth().isAuthorizationEnabled() || cfg.navigation?.profile ? profileSettings : undefined,
+      appSwitcher:
+        cfg.navigation?.appSwitcher && this.getAppSwitcherData(cfg.navigation?.appSwitcher, cfg.settings?.header),
+      navClick: (item: NavItem) => (item.node ? this.navItemClick(item.node, pathData) : Promise.resolve())
+    };
+  }
+
+  getParentNode(node: Node | undefined, pathData: PathData): Node | undefined {
+    if (node && node === pathData.nodesInPath?.[pathData.nodesInPath.length - 1]) {
+      return pathData.nodesInPath[pathData.nodesInPath.length - 2];
+    }
+
+    return undefined;
+  }
+
+  getAppSwitcherData(appSwitcherData: AppSwitcher, headerSettings: any): AppSwitcher | undefined {
+    const appSwitcher = appSwitcherData;
+    const showMainAppEntry = appSwitcher?.showMainAppEntry;
+
+    if (appSwitcher && appSwitcher.items && showMainAppEntry) {
+      const mainAppEntry = {
+        title: this.luigi.i18n().getTranslation(headerSettings.title || ''),
+        subTitle: headerSettings.subTitle,
+        link: '/'
+      };
+
+      appSwitcher.items?.map((item: AppSwitcherItem) => ({
+        ...item,
+        title: this.luigi.i18n().getTranslation(item.title || '')
+      }));
+
+      if (appSwitcher.items.some((item: AppSwitcherItem) => item.link === mainAppEntry.link)) {
+        return appSwitcher;
+      }
+
+      appSwitcher.items.unshift(mainAppEntry);
+    }
+
+    return appSwitcher;
+  }
+
+  async getTabNavData(path: string, pData?: PathData): Promise<TabNavData> {
+    const pathData = pData ?? (await this.getPathData(path));
+    if (path === '' && pathData?.nodesInPath?.[0].viewUrl) {
+      return {};
+    }
+    const selectedNode = pathData?.selectedNode;
+    let parentNode: Node | undefined;
+    if (!selectedNode) return {};
+    if (!selectedNode.tabNav) {
+      parentNode = this.getParentNode(selectedNode, pathData) as Node;
+      if (parentNode && !parentNode.tabNav) return {};
+    }
+
+    const tabNavNode = parentNode || selectedNode;
+    const tabNavConfig = this.getTabNavConfig(tabNavNode);
+
+    if (tabNavConfig && !('hideTabNavAutomatically' in tabNavConfig) && !tabNavConfig.showAsTabHeader) {
+      console.warn('tabNav:{hideTabNavAutomatically:true|false} is not configured correctly.');
+    }
+
+    let basePath = '';
+    pathData.nodesInPath?.forEach((nip) => {
+      if (nip.children) {
+        basePath += '/' + (nip.pathSegment || '');
+      }
+    });
+
+    const children = parentNode
+      ? this.getTruncatedChildren(parentNode.children ?? [])
+      : this.getTruncatedChildren(selectedNode.children ?? []);
+
+    if (tabNavConfig?.hideTabNavAutomatically && children.length <= 1) {
+      return {};
+    }
+
+    const navData = await this.buildNavItems(children, selectedNode, pathData);
+
+    const result: TabNavData = {
+      selectedNode,
+      items: navData.items,
+      basePath: basePath.replace(/\/\/+/g, '/'),
+      overflowLabel: this.luigi.i18n().getTranslation('luigi.navigation.tabNav.more'),
+      navClick: (item: NavItem) => (item.node ? this.navItemClick(item.node, pathData) : Promise.resolve())
+    };
+
+    if (tabNavConfig?.showAsTabHeader && tabNavNode.webcomponent && tabNavNode.viewUrl) {
+      result.headerNode = {
+        viewUrl: tabNavNode.viewUrl,
+        context: pathData.context || tabNavNode.context,
+        webcomponent: tabNavNode.webcomponent
+      };
+    }
+
+    return result;
+  }
+
+  private getTabNavConfig(node: Node): TabNavConfig | undefined {
+    if (!node.tabNav) return undefined;
+    if (typeof node.tabNav === 'object') return node.tabNav as TabNavConfig;
+    return undefined;
+  }
+
+  async getBreadcrumbData(
+    path: string,
+    pData?: PathData,
+    onResolve?: (data: BreadcrumbData) => void
+  ): Promise<BreadcrumbData> {
+    const breadcrumbConfig = this.luigi.getConfigValue('navigation.breadcrumbs');
+    const pathData = pData ?? (await this.getPathData(path));
+    const nodesInPath = pathData?.nodesInPath || [];
+    const navItems: BreadcrumbItem[] = [];
+    let showBreadcrumb = !!breadcrumbConfig;
+    let basePath = '';
+
+    if (!breadcrumbConfig || (path === '' && nodesInPath?.[0].viewUrl)) {
+      this.previousBreadcrumbs = {};
+      return {};
+    }
+
+    // if enabled in general, check node scope
+    nodesInPath.forEach((node: Node) => {
+      if (node.children) {
+        basePath += '/' + (node.pathSegment || '');
+      }
+
+      if (node.showBreadcrumbs === false) {
+        showBreadcrumb = false;
+      } else if (node.showBreadcrumbs === true) {
+        showBreadcrumb = true;
+      }
+    });
+
+    if (!showBreadcrumb) {
+      return {
+        clearBeforeRender: true
+      };
+    }
+
+    const hashRouting = this.luigi.getConfigValue('routing.useHashRouting');
+    const currentPath = RoutingHelpers.getCurrentPath(this.luigi, hashRouting);
+    const start = breadcrumbConfig.omitRoot ? 2 : 1;
+
+    for (let i = start; i < nodesInPath.length; i++) {
+      const node = nodesInPath[i];
+      const route = RoutingHelpers.mapPathToNode(currentPath.path, node);
+
+      if (route && this.previousBreadcrumbs[route]) {
+        navItems.push(this.previousBreadcrumbs[route]);
+      } else if (node.label || node.pathSegment || node.titleResolver) {
+        if (node.titleResolver) {
+          navItems.push({
+            label:
+              node.titleResolver.prerenderFallback && node.titleResolver.fallbackTitle
+                ? this.luigi.i18n().getTranslation(node.titleResolver.fallbackTitle)
+                : breadcrumbConfig.pendingItemLabel || '',
+            node: node,
+            route: route,
+            pending: true
+          });
+        } else {
+          const label = await RoutingHelpers.getNodeLabel(node, this.luigi);
+          if (label) {
+            navItems.push({ label: label, node: node, route: route });
+          }
+        }
+      }
+    }
+
+    const hasPendingItems = navItems.some((item) => item.pending);
+    const buildResult = (items: BreadcrumbItem[]): BreadcrumbData => ({
+      basePath: basePath.replace(/\/\/+/g, '/'),
+      clearBeforeRender: breadcrumbConfig.clearBeforeRender,
+      items,
+      renderer: breadcrumbConfig.renderer,
+      selectedNode: pathData?.selectedNode || ({} as Node)
+    });
+
+    if (hasPendingItems && onResolve) {
+      this.resolveBreadcrumbTitles(
+        nodesInPath,
+        start,
+        currentPath,
+        hashRouting,
+        breadcrumbConfig,
+        buildResult,
+        onResolve
+      );
+      return buildResult(navItems);
+    }
+
+    if (currentPath.path === RoutingHelpers.getCurrentPath(this.luigi, hashRouting).path) {
+      const breadcrumbCache: Record<string, BreadcrumbItem> = {};
+
+      if (navItems.length > 1) {
+        navItems[navItems.length - 1].last = true;
+      } else if (breadcrumbConfig.autoHide) {
+        navItems.length = 0;
+      }
+
+      navItems.map((item: BreadcrumbItem) => {
+        if (item.route) {
+          breadcrumbCache[item.route] = item;
+        }
+      });
+
+      this.previousBreadcrumbs = breadcrumbCache;
+    }
+
+    return buildResult(navItems);
+  }
+
+  private async resolveBreadcrumbTitles(
+    nodesInPath: Node[],
+    start: number,
+    currentPath: { path: string },
+    hashRouting: boolean,
+    breadcrumbConfig: any,
+    buildResult: (items: BreadcrumbItem[]) => BreadcrumbData,
+    onResolve: (data: BreadcrumbData) => void
+  ): Promise<void> {
+    const resolvedItems: BreadcrumbItem[] = [];
+
+    for (let i = start; i < nodesInPath.length; i++) {
+      const node = nodesInPath[i];
+      const route = RoutingHelpers.mapPathToNode(currentPath.path, node);
+
+      if (node.titleResolver) {
+        try {
+          const data = await this.extractDataFromPath(route || '');
+          const ctx = RoutingHelpers.substituteDynamicParamsInObject(
+            Object.assign({}, data.pathData.context, node.context),
+            data.pathData.pathParams || {}
+          );
+          const nodeTitleData = await NavigationHelpers.fetchNodeTitleData(node, ctx);
+          resolvedItems.push({ label: nodeTitleData.label, node, route });
+          continue;
+        } catch (e) {
+          // fallback to label resolution below
+        }
+      }
+
+      const label = await RoutingHelpers.getNodeLabel(node, this.luigi);
+      if (label) {
+        resolvedItems.push({ label, node, route });
+      }
+    }
+
+    if (currentPath.path === RoutingHelpers.getCurrentPath(this.luigi, hashRouting).path) {
+      const breadcrumbCache: Record<string, BreadcrumbItem> = {};
+
+      if (resolvedItems.length > 1) {
+        resolvedItems[resolvedItems.length - 1].last = true;
+      } else if (breadcrumbConfig.autoHide) {
+        resolvedItems.length = 0;
+      }
+
+      resolvedItems.map((item: BreadcrumbItem) => {
+        if (item.route) {
+          breadcrumbCache[item.route] = item;
+        }
+      });
+
+      this.previousBreadcrumbs = breadcrumbCache;
+    }
+
+    onResolve(buildResult(resolvedItems));
+  }
+
+  /**
+   * Handles changes between navigation nodes by invoking a configured hook function.
+   *
+   * This method retrieves the `navigation.nodeChangeHook` function from the Luigi configuration.
+   * If the hook is defined and is a function, it is called with the previous and next node as arguments.
+   * If the hook is defined but not a function, a warning is logged to the console.
+   *
+   * @param prevNode - The previous navigation node, or `undefined` if there was no previous node.
+   * @param nextNode - The new navigation node that is being navigated to.
+   */
+  onNodeChange(prevNode: Node | undefined, nextNode: Node): void {
+    const invokedFunction = this.luigi.getConfigValue('navigation.nodeChangeHook');
+    if (GenericHelpers.isFunction(invokedFunction)) {
+      invokedFunction(prevNode, nextNode);
+    } else if (invokedFunction !== undefined) {
+      console.warn('nodeChangeHook is not a function!');
+    }
+  }
+
+  /**
+   * Extracts navigation data from the provided path string.
+   *
+   * This method parses the given path to retrieve structured path data and the last node object
+   * in the navigation hierarchy. It utilizes internal helpers to process the path and extract
+   * relevant navigation information.
+   *
+   * @param path - The navigation path string to extract data from.
+   * @returns A promise that resolves to an object containing:
+   *   - `nodeObject`: The last node object in the navigation path.
+   *   - `pathData`: The structured data representation of the path.
+   */
+  async extractDataFromPath(path: string): Promise<{ nodeObject: Node; pathData: PathData }> {
+    const pathData = await this.getPathData(path);
+    const nodeObject: any = RoutingHelpers.getLastNodeObject(pathData);
+    return { nodeObject, pathData };
+  }
+
+  async shouldPreventNavigation(node: Node): Promise<boolean> {
+    if (
+      node?.onNodeActivation &&
+      (GenericHelpers.isFunction(node.onNodeActivation) || GenericHelpers.isAsyncFunction(node.onNodeActivation)) &&
+      (await node.onNodeActivation(node)) === false
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  async shouldPreventNavigationForPath(nodepath: string): Promise<boolean> {
+    const { nodeObject } = await this.extractDataFromPath(nodepath);
+
+    if (await this.shouldPreventNavigation(nodeObject)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  async openViewInNewTab(nodepath: string): Promise<void> {
+    if (await this.shouldPreventNavigationForPath(nodepath)) {
+      return;
+    }
+
+    const hashRouting = this.luigi.getConfigValue('routing.useHashRouting');
+
+    if (hashRouting) {
+      nodepath = '#' + nodepath;
+    }
+
+    let validatedUrl: URL | undefined;
+    try {
+      validatedUrl = new URL(nodepath, window.location.origin);
+      if (validatedUrl.origin !== window.location.origin) {
+        return;
+      }
+    } catch (e) {
+      return;
+    }
+
+    /*'noopener,noreferrer' required to disable XSS injections*/
+    window.open(validatedUrl.toString(), '_blank', 'noopener,noreferrer');
+  }
+
+  private resolveTooltipText(node: Node, translation: string): string {
+    return NavigationHelpers.generateTooltipText(node, translation, this.luigi);
+  }
+
+  private prepareRootNodes(navNodes: Node[], context: Record<string, any>): Node[] {
+    const rootNodes = navNodes;
+
+    if (!rootNodes.length) {
+      return rootNodes;
+    }
+
+    rootNodes.forEach((rootNode: Node) => {
+      rootNode.isRootNode = true;
+    });
+    return rootNodes;
+    //TODO check if this is needed because it is already called in getChildren
+    // return this.getAccessibleNodes(undefined, rootNodes, context);
+  }
+
+  private getAccessibleNodes(node: Node | undefined, children: Node[], context: Record<string, any>): Node[] {
+    return children
+      ? children.filter((child) => NavigationHelpers.isNodeAccessPermitted(child, node, context, this.luigi))
+      : [];
+  }
+
+  /**
+   * Deal with route changing scenario.
+   * @param {NavigationRequestParams} params - the params to configure navigation request
+   * @param {string} params.path - the path of the view to open
+   * @param {string} params.preserveView - preserve a view by setting it to specific value (optional)
+   * @param {any} params.modalSettings - settings to configure the modal's title and size (optional)
+   * @param {boolean} params.newTab - open a view in new tab by setting it to `true` (optional)
+   * @param {boolean} params.withoutSync - disables the navigation handling for a single navigation request (optional)
+   * @param {boolean} params.preventContextUpdate - make no context update being triggered; default is false (optional)
+   * @param {boolean} params.preventHistoryEntry - make no history update being triggered; default is false (optional)
+   * @param {any} callbackFn - callback to be triggered after opening view as modal (optional)
+   */
+  async handleNavigationRequest(params: NavigationRequestParams, callbackFn?: any): Promise<void> {
+    const {
+      path,
+      intent,
+      preserveView,
+      drawerSettings,
+      modalSettings,
+      newTab,
+      withoutSync,
+      preventContextUpdate,
+      preventHistoryEntry,
+      options
+    }: NavigationRequestParams = params;
+    const hashRouting = this.luigi.getConfig().routing?.useHashRouting;
+    const isSpecial = !!(drawerSettings || modalSettings);
+    const nodeParams = options?.nodeParams;
+    const buildOptions = isSpecial ? { ...options, nodeParams: {} } : options;
+    let computedPath = await this.buildPath(path, buildOptions || {});
+
+    if (await this.shouldPreventNavigationForPath(path)) {
+      return;
+    }
+
+    if (!isSpecial) {
+      const dirtyStatusService = serviceRegistry.get(DirtyStatusService);
+
+      try {
+        await dirtyStatusService.getUnsavedChangesModalPromise();
+      } catch (e) {
+        return;
+      }
+    }
+
+    if (intent) {
+      const intentPath = RoutingHelpers.getIntentPath(path.replace('#', ''), this.luigi);
+
+      if (!intentPath) {
+        return;
+      }
+
+      if (typeof intentPath === 'string') {
+        computedPath = intentPath;
+      } else if (GenericHelpers.isObject(intentPath)) {
+        RoutingHelpers.handleExternalIntentPath(intentPath as Record<string, any>);
+        return;
+      }
+    }
+
+    const normalizedPath = computedPath.replace(/\/\/+/g, '/');
+    const chosenHistoryMethod: HistoryMethod = !preventHistoryEntry ? 'pushState' : 'replaceState';
+    const { path: currentPath, query: currentQuery } = RoutingHelpers.getCurrentPath(this.luigi, hashRouting);
+    const currentFullPath = currentPath + (currentQuery ? '?' + currentQuery : '');
+
+    const isOverlayRequest = Boolean(drawerSettings || modalSettings);
+    if (
+      !isOverlayRequest &&
+      GenericHelpers.trimLeadingSlash(currentFullPath) === GenericHelpers.trimLeadingSlash(normalizedPath)
+    ) {
+      const containerWrapper = this.luigi.getEngine()._connector?.getContainerWrapper();
+      if (containerWrapper?.childNodes) {
+        const activeContainer = [...containerWrapper.childNodes].find(
+          (element: any) => element.tagName?.indexOf('LUIGI-') === 0 && element.style?.display !== 'none'
+        ) as HTMLElement | undefined;
+        if (activeContainer) {
+          activeContainer.remove();
+          UIModule.routingService.handleRouteChange({ path: currentPath, query: currentQuery });
+        }
+      }
+      return;
+    }
+
+    if (drawerSettings || modalSettings) {
+      if (drawerSettings) {
+        // Pass nodeParams via settings so openAsDrawer can forward them to createContainer.
+        // Drawers don't persist data to the URL (no appendModalDataToUrl), but nodeParams
+        // still need to reach the MFE.
+        if (nodeParams && Object.keys(nodeParams).length > 0) {
+          drawerSettings.nodeParams = nodeParams;
+        }
+        this.luigi.navigation().openAsDrawer(normalizedPath, drawerSettings, callbackFn);
+      } else {
+        if (!modalSettings.keepPrevious) {
+          const closed = await this.getModalService().closeModalsWithDirtyCheck();
+          if (!closed) return;
+        }
+        if (nodeParams && Object.keys(nodeParams).length > 0) {
+          modalSettings.nodeParams = nodeParams;
+        }
+        this.luigi.navigation().openAsModal(normalizedPath, modalSettings, callbackFn);
+      }
+    } else {
+      const eventDetail: NavigationRequestEvent = {
+        detail: {
+          preventContextUpdate: !!preventContextUpdate,
+          preventHistoryEntry: !!preventHistoryEntry,
+          withoutSync: !!withoutSync
+        }
+      };
+
+      const dirtyStatusService = serviceRegistry.get(DirtyStatusService);
+
+      if (UIModule.drawerContainer && dirtyStatusService.shouldShowUnsavedChangesModal(UIModule.drawerContainer)) {
+        try {
+          await dirtyStatusService.getUnsavedChangesModalPromise(UIModule.drawerContainer);
+        } catch (e) {
+          return;
+        }
+      }
+
+      const modalsClosed = await serviceRegistry.get(ModalService).closeModalsWithDirtyCheck();
+      if (!modalsClosed) return;
+
+      if (newTab) {
+        await this.openViewInNewTab(normalizedPath);
+        return;
+      }
+
+      //TODO still an issue with reload
+      // const pathExist = await RoutingHelpers.pathExists(normalizedPath, this.luigi);
+      // const redirectPath = await RoutingHelpers.handlePageNotFoundAndRetrieveRedirectPath(
+      //   normalizedPath,
+      //   pathExist,
+      //   this.luigi
+      // );
+      // if (!redirectPath) {
+      //   return;
+      // }
+
+      const method: HistoryMethod = this.luigi.getConfigValue('routing.disableBrowserHistory')
+        ? 'replaceState'
+        : chosenHistoryMethod;
+
+      if (hashRouting) {
+        const hashPath = GenericHelpers.addLeadingSlash(normalizedPath);
+        if (!withoutSync && !preventContextUpdate && method !== 'replaceState') {
+          location.hash = hashPath;
+        } else {
+          const event = new CustomEvent<NavigationRequestBase>('hashchange', eventDetail);
+
+          window.history[method]({ path: '/#' + hashPath }, '', '/#' + hashPath);
+          window.dispatchEvent(event);
+        }
+      } else {
+        const event = new CustomEvent<NavigationRequestBase>('popstate', eventDetail);
+
+        window.history[method]({ path: normalizedPath }, '', normalizedPath);
+        window.dispatchEvent(event);
+      }
+    }
+  }
+
+  //TODO check context default object as param
+  async getChildren(node: Node | undefined, context: Record<string, any> = {}) {
+    const nodeDataManagementService = serviceRegistry.get(NodeDataManagementService);
+    if (!node) {
+      return [];
+    }
+    let children = [];
+    if (!nodeDataManagementService.hasChildren(node)) {
+      try {
+        children = await AsyncHelpers.getConfigValueFromObjectAsync(node, 'children', context || node.context);
+        if (children === undefined || children === null) {
+          children = [];
+        }
+        children =
+          children
+            .map((n: Node) => this.getExpandStructuralPathSegment(n))
+            .map((n: Node) => this.bindChildToParent(n, node)) || [];
+      } catch (err) {
+        console.error('Could not lazy-load children for node', err);
+      }
+    } else {
+      let data = nodeDataManagementService.getChildren(node);
+      if (data) children = data.children;
+    }
+    let filteredChildren = this.getAccessibleNodes(node, children, context);
+    nodeDataManagementService.setChildren(node, { children, filteredChildren });
+    return filteredChildren;
+  }
+
+  getExpandStructuralPathSegment(node: Node): Node {
+    // Checking for pathSegment to exclude virtual root node
+    if (node && node.pathSegment && node.pathSegment.indexOf('/') !== -1) {
+      const segs = node.pathSegment.split('/');
+      const clonedNode = { ...node };
+      const buildStructuralNode = (segs: string[], node: Node) => {
+        const seg = segs.shift();
+        let child: Node = {} as Node;
+        if (segs.length) {
+          child.pathSegment = seg;
+          if (node.hideFromNav) child.hideFromNav = node.hideFromNav;
+          child.children = [buildStructuralNode(segs, node)];
+        } else {
+          // set original data to last child
+          child = clonedNode;
+          child.pathSegment = seg;
+        }
+        return child;
+      };
+      return buildStructuralNode(segs, node);
+    }
+    return node;
+  }
+
+  bindChildToParent(child: Node, node: Node): Node {
+    // Checking for pathSegment to exclude virtual root node
+    // node.pathSegment check is also required for virtual nodes like categories
+    if (node && node.pathSegment) {
+      child.parent = node;
+    }
+    return child;
+  }
+
+  /**
+   * Builds a virtual tree structure for the given node based on the provided path parameters.
+   *
+   * @param node - The node for which the virtual tree is being built.
+   * @param nodesInPath - An array of nodes representing the path in the virtual tree.
+   * @param pathParams - An object containing path parameters for the virtual tree.
+   */
+  buildVirtualTree(node: Node, segment: any, pathParams: Record<string, any>): Node[] | undefined {
+    const virtualTreeRoot = node.virtualTree;
+    const virtualTreeChild = node._virtualTree;
+    const _virtualViewUrl = node._virtualViewUrl || node.viewUrl;
+    if ((virtualTreeRoot || virtualTreeChild) && segment) {
+      let currentVirtualPathIndex = typeof node._virtualPathIndex === 'number' ? node._virtualPathIndex : undefined;
+      if (virtualTreeRoot) {
+        currentVirtualPathIndex = undefined;
+        node.keepSelectedForChildren = true;
+      }
+
+      const maxPathDepth = 50;
+      if (typeof currentVirtualPathIndex === 'number' && currentVirtualPathIndex > maxPathDepth) {
+        return;
+      }
+
+      const nextVirtualPathIndex = (currentVirtualPathIndex ?? 0) + 1;
+      if (nextVirtualPathIndex > maxPathDepth) {
+        return;
+      }
+      const keysToClean = ['_*', 'virtualTree', 'parent', 'children', 'keepSelectedForChildren', 'navigationContext'];
+      const newChild = GenericHelpers.removeProperties(node, keysToClean);
+      Object.assign(newChild, {
+        pathSegment: ':virtualSegment_' + nextVirtualPathIndex,
+        label: ':virtualSegment_' + nextVirtualPathIndex,
+        viewUrl: GenericHelpers.trimTrailingSlash(
+          this.buildVirtualViewUrl(_virtualViewUrl || '', pathParams, nextVirtualPathIndex)
+        ),
+        _virtualTree: true,
+        _virtualPathIndex: nextVirtualPathIndex,
+        _virtualViewUrl
+      });
+
+      const isVirtualChildren =
+        Array.isArray(node.children) && node.children.length > 0 ? node.children[0]._virtualTree : false;
+      if (node.children && !isVirtualChildren) {
+        console.warn(
+          'Found both virtualTree and children nodes defined on a navigation node. \nChildren nodes are redundant and ignored when virtualTree is enabled. \nPlease refer to documentation'
+        );
+      }
+      return [newChild];
+    }
+  }
+
+  /**
+   * Requires str to include :virtualPath
+   * and pathParams consist of :virtualSegment_N
+   * for deep nested virtual tree building
+   *
+   * @param str - The base string for the virtual view URL.
+   * @param pathParams - An object containing path parameters for the virtual view URL.
+   * @param _virtualPathIndex - The index of the virtual path segment.
+   * @returns The constructed virtual view URL string.
+   */
+  buildVirtualViewUrl(str: string, pathParams: any, _virtualPathIndex: number): string {
+    let newStr = '';
+    for (const key in pathParams) {
+      if (key.startsWith('virtualSegment')) {
+        newStr += ':' + key + '/';
+      }
+    }
+    if (!_virtualPathIndex) {
+      return str;
+    }
+    newStr += ':virtualSegment_' + _virtualPathIndex + '/';
+    let vViewUrl = str;
+    if (str.includes('{virtualTreePath}')) {
+      vViewUrl = str.replace('{virtualTreePath}', newStr);
+    } else {
+      vViewUrl = str + '/' + newStr;
+    }
+    try {
+      if (new URL(vViewUrl, 'http://dummy-base').origin === new URL(str, 'http://dummy-base').origin) {
+        return vViewUrl;
+      }
+    } catch (err) {
+      console.error('Error building virtual view URL -- make sure virtualTreePath is not part of origin.', err);
+    }
+    return str;
+  }
+
+  /**
+   * Builds a path string by concatenating path segments from the virtual tree root or the incoming path.
+   *
+   * @param incomingPath - The incoming path segment to be appended.
+   * @param options - The set of params related to navigation.
+   * @returns The constructed path string.
+   */
+  async buildPath(incomingPath: string, options: NavigationOptions): Promise<string> {
+    const { fromVirtualTreeRoot, fromContext, fromClosestContext, fromParent, relative, nodeParams } = options;
+    const hashRouting = this.luigi.getConfigValue('routing.useHashRouting');
+    const { path: currentPath, query } = RoutingHelpers.getCurrentPath(this.luigi, hashRouting);
+    const fullPath = currentPath + (query ? '?' + query : '');
+    const pathData = await this.getPathData(fullPath);
+    const nodes = pathData.nodesInPath;
+    let path = incomingPath;
+    if (nodes === undefined) {
+      console.warn('No nodes in path found for current path:', fullPath);
+      return path;
+    }
+    if (fromVirtualTreeRoot) {
+      //TODO needs to be clarified if we store pahtData somewhere or calculate new
+      path = '';
+      const lastVirtualTreeIndex = [...nodes]
+        .map((n, i) => (n.virtualTree ? i : -1))
+        .filter((i) => i !== -1)
+        .pop();
+
+      nodes.forEach((nip, index) => {
+        if (nip.pathSegment && (lastVirtualTreeIndex === undefined || index <= lastVirtualTreeIndex)) {
+          path += '/' + nip.pathSegment;
+        }
+      });
+      path += '/' + incomingPath;
+    } else if (fromContext) {
+      const navigationContext = fromContext;
+      const node = [...nodes].reverse().find((n) => navigationContext === n.navigationContext);
+      path = RoutingHelpers.concatenatePath(RoutingHelpers.getSubPath(node, pathData.pathParams), incomingPath);
+    } else if (fromClosestContext) {
+      const node = [...nodes].reverse().find((n) => n.navigationContext && n.navigationContext.length > 0);
+      path = RoutingHelpers.concatenatePath(RoutingHelpers.getSubPath(node, pathData.pathParams), incomingPath);
+    } else if (fromParent) {
+      path = RoutingHelpers.concatenatePath(
+        RoutingHelpers.getSubPath(pathData.selectedNode?.parent, pathData.pathParams),
+        incomingPath
+      );
+    } else if (relative) {
+      path = RoutingHelpers.concatenatePath(
+        RoutingHelpers.getSubPath(pathData.selectedNode, pathData.pathParams),
+        incomingPath
+      );
+    }
+
+    if (nodeParams && Object.keys(nodeParams).length > 0) {
+      path += path.includes('?') ? '&' : '?';
+      Object.entries(nodeParams).forEach((entry, index) => {
+        path +=
+          encodeURIComponent(RoutingHelpers.getContentViewParamPrefix(this.luigi) + entry[0]) +
+          '=' +
+          encodeURIComponent(entry[1]) +
+          (index < Object.keys(nodeParams).length - 1 ? '&' : '');
+      });
+    }
+    return path;
+  }
+
+  /**
+   * Computes the current route path relative to a context node, based on the provided navigation options.
+   * Unlike {@link buildPath}, which concatenates an incoming path onto a context node for navigation,
+   * this method subtracts the context node's path from the current node's path to return the relative remainder.
+   *
+   * @param options - Navigation options determining the reference point for the relative path.
+   * @param options.fromVirtualTreeRoot - If true, returns the path relative to the nearest ancestor with `virtualTree: true`.
+   * @param options.fromParent - If true, returns the path relative to the current node's parent.
+   * @param options.fromClosestContext - If true, returns the path relative to the nearest ancestor with a `navigationContext`.
+   * @param options.fromContext - If set, returns the path relative to the ancestor whose `navigationContext` matches this value.
+   * @returns The current route path relative to the resolved context node, or the full sub-path if no option is set.
+   */
+  async getCurrentRoutePath(options: NavigationOptions): Promise<string | undefined> {
+    const { fromVirtualTreeRoot, fromContext, fromClosestContext, fromParent } = options;
+    const hashRouting = this.luigi.getConfigValue('routing.useHashRouting');
+    const { path: currentPath, query } = RoutingHelpers.getCurrentPath(this.luigi, hashRouting);
+    const fullPath = currentPath + (query ? '?' + query : '');
+    const pathData = await this.getPathData(fullPath);
+    const nodes = pathData.nodesInPath;
+    if (!nodes || !pathData.selectedNode) {
+      return '';
+    }
+    const currentNodeSubPath = RoutingHelpers.getSubPath(pathData.selectedNode, pathData.pathParams);
+
+    if (fromVirtualTreeRoot) {
+      const virtualTreeNode = [...nodes].reverse().find((n) => n.virtualTree);
+      if (!virtualTreeNode) {
+        console.error(
+          'LuigiClient Error: fromVirtualTreeRoot() is not possible because you are not inside a Luigi virtualTree navigation node.'
+        );
+        return;
+      }
+      const virtualTreeNodeSubPath = RoutingHelpers.getSubPath(virtualTreeNode, pathData.pathParams);
+      return currentNodeSubPath.split(virtualTreeNodeSubPath).join('');
+    } else if (fromParent) {
+      const parentSubPath = RoutingHelpers.getSubPath(pathData.selectedNode.parent, pathData.pathParams);
+      return currentNodeSubPath.split(parentSubPath).join('');
+    } else if (fromClosestContext) {
+      const node = [...nodes].reverse().find((n) => n.navigationContext && n.navigationContext.length > 0);
+      const contextSubPath = RoutingHelpers.getSubPath(node, pathData.pathParams);
+      return currentNodeSubPath.split(contextSubPath).join('');
+    } else if (fromContext) {
+      const node = [...nodes].reverse().find((n) => fromContext === n.navigationContext);
+      const contextSubPath = RoutingHelpers.getSubPath(node, pathData.pathParams);
+      return currentNodeSubPath.split(contextSubPath).join('');
+    }
+    return currentNodeSubPath;
+  }
+
+  private async buildContextSwitcher(): Promise<ContextSwitcher | undefined> {
+    const config = this.luigi.getConfigValue('navigation.contextSwitcher');
+
+    if (!config) {
+      return undefined;
+    }
+
+    ContextSwitcherHelpers.resetFallbackLabelCache();
+
+    const actions: ContextSwitcherItem[] = await this.luigi.getConfigValueAsync('navigation.contextSwitcher.actions');
+    const options: ContextSwitcherItem[] = await ContextSwitcherHelpers.fetchOptions(this.luigi);
+    const hashRouting = this.luigi.getConfig().routing?.useHashRouting;
+    const currentPath = RoutingHelpers.getCurrentPath(this.luigi, hashRouting);
+    const parentNodePath = config.parentNodePath;
+    const fallbackLabelResolver = config.fallbackLabelResolver;
+    let selectedLabel = await ContextSwitcherHelpers.getSelectedLabel(
+      currentPath?.path,
+      options,
+      parentNodePath,
+      fallbackLabelResolver,
+      this.luigi
+    );
+    let selectedNodePath = ContextSwitcherHelpers.getSelectedNode(currentPath?.path, options, parentNodePath);
+    let selectedOption: ContextSwitcherItem = ContextSwitcherHelpers.getSelectedOption(
+      currentPath?.path,
+      options,
+      parentNodePath
+    );
+    const handleChangeEvent = (selectedValue: string, selectedType?: string | undefined) => {
+      if (!selectedValue || typeof selectedValue !== 'string') {
+        return;
+      }
+
+      if (selectedType === 'action') {
+        const node = actions.find((action) => action.link === selectedValue);
+
+        if (node?.clickHandler) {
+          const result = node.clickHandler(node);
+
+          if (!result) {
+            return;
+          }
+        }
+
+        this.luigi.navigation().navigate(selectedValue);
+      } else {
+        this.luigi.navigation().navigate(selectedValue);
+      }
+    };
+
+    if (config?.preserveSubPathOnSwitch && options?.length && selectedOption) {
+      options.forEach((option) => {
+        option.linkFromPath = ContextSwitcherHelpers.getNodePathFromCurrentPath(option, selectedOption, this.luigi);
+
+        if (option.link === selectedOption.link) {
+          selectedOption.linkFromPath = option.linkFromPath;
+        }
+      });
+    }
+
+    if (!selectedOption && actions?.length) {
+      const activeAction = actions?.find((action) => action.link === `/${currentPath?.path}`);
+
+      if (activeAction) {
+        selectedLabel = activeAction.label;
+        selectedNodePath = activeAction.link;
+        selectedOption = activeAction;
+      }
+    }
+
+    return {
+      actions,
+      config,
+      options,
+      selectedLabel,
+      selectedNodePath,
+      selectedOption,
+      switcherChange: (selectedValue: string, selectedType?: string | undefined) =>
+        handleChangeEvent(selectedValue, selectedType)
+    };
+  }
+}

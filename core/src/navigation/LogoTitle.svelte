@@ -163,62 +163,80 @@
   }
 </script>
 
-{#if addNavHrefForAnchor}
-  <a
-    class="fd-shellbar__logo {!hasLogo ? 'fd-shellbar__logo--image-replaced' : ''} {hasLogo ? 'lui-customlogo' : ''}"
-    aria-label={title}
-    on:click={(event) => {
-      NavigationHelpers.handleNavAnchorClickedWithoutMetaKey(event) && goTo('/');
-    }}
-    href="/"
-    role="button"
-    tabindex="0"
-  >
-    {#if hasLogo}<img data-testid="luigi-topnav-logo" bind:this={logo} alt={title} />{/if}
-  </a>
-{:else}
-  <!-- svelte-ignore a11y-click-events-have-key-events -->
-  <span
-    class="fd-shellbar__logo {!hasLogo ? 'fd-shellbar__logo--image-replaced' : ''} {hasLogo ? 'lui-customlogo' : ''}"
-    aria-label={title}
-    on:click={() => goTo('/')}
-    role="button"
-    tabindex="0"
-  >
-    {#if hasLogo}<img data-testid="luigi-topnav-logo" bind:this={logo} alt={title} />{/if}
-  </span>
-{/if}
-{#if title}
-  {#if !hasApps || keepMainTitle}
-    {#if addNavHrefForAnchor}
-      <a
-        class="fd-shellbar__title lui-shellbar-single-app-title {hasApps && 'lui-has-apps'}"
-        data-testid="luigi-topnav-title"
-        on:click={(event) => {
-          NavigationHelpers.handleNavAnchorClickedWithoutMetaKey(event) && goTo('/');
-        }}
-        href="/"
-      >
-        <span>{$getTranslation(keepMainTitle ? defaultTitle : title)}</span>
-      </a>
-    {:else}
-      <!-- svelte-ignore a11y-click-events-have-key-events -->
-      <span
-        class="fd-shellbar__title lui-shellbar-single-app-title"
-        data-testid="luigi-topnav-title"
-        on:click={() => goTo('/')}
-      >
-        <span>{$getTranslation(keepMainTitle ? defaultTitle : title)}</span>
-      </span>
+<div
+  class="fd-shellbar__branding"
+  aria-label={$getTranslation(title)}
+  role="button"
+  tabindex="0"
+  on:keyup|preventDefault={(event) => {
+    (event.key === 'Enter' || event.key === ' ') && goTo('/');
+  }}
+>
+  {#if addNavHrefForAnchor}
+    <a
+      class="fd-shellbar__logo {!hasLogo ? 'fd-shellbar__logo--image-replaced' : ''} {hasLogo ? 'lui-customlogo' : ''}"
+      aria-hidden="true"
+      on:click={(event) => {
+        NavigationHelpers.handleNavAnchorClickedWithoutMetaKey(event) && goTo('/');
+      }}
+      href="/"
+      tabindex="-1"
+    >
+      {#if hasLogo}<img data-testid="luigi-topnav-logo" bind:this={logo} alt={title} />{/if}
+    </a>
+  {:else}
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <span
+      class="fd-shellbar__logo {!hasLogo ? 'fd-shellbar__logo--image-replaced' : ''} {hasLogo ? 'lui-customlogo' : ''}"
+      aria-hidden="true"
+      on:click={() => goTo('/')}
+      tabindex="-1"
+    >
+      {#if hasLogo}<img data-testid="luigi-topnav-logo" bind:this={logo} alt={title} />{/if}
+    </span>
+  {/if}
+  {#if title}
+    {#if !hasApps || keepMainTitle}
+      {#if addNavHrefForAnchor}
+        <a
+          class="fd-shellbar__title lui-shellbar-single-app-title {hasApps && 'lui-has-apps'}"
+          data-testid="luigi-topnav-title"
+          aria-hidden="true"
+          on:click={(event) => {
+            NavigationHelpers.handleNavAnchorClickedWithoutMetaKey(event) && goTo('/');
+          }}
+          tabindex="-1"
+          href="/"
+        >
+          {$getTranslation(keepMainTitle ? defaultTitle : title)}
+        </a>
+      {:else}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <span
+          class="fd-shellbar__title lui-shellbar-single-app-title"
+          data-testid="luigi-topnav-title"
+          aria-hidden="true"
+          on:click={() => goTo('/')}
+          tabindex="-1"
+        >
+          {$getTranslation(keepMainTitle ? defaultTitle : title)}
+        </span>
+      {/if}
     {/if}
   {/if}
+</div>
+{#if title}
   {#if hasApps}
+    {#if keepMainTitle}<span class="fd-shellbar__separator"></span>{/if}
     <div
       class="fd-popover {keepMainTitle && 'lui-keep-main'} {appSwitcherItems &&
         appSwitcherItems.length === 1 &&
         'lui-sat'}"
     >
       <!-- svelte-ignore a11y-click-events-have-key-events -->
+      <!-- svelte-ignore a11y-no-static-element-interactions -->
       <div class="fd-popover__control" on:click|stopPropagation={() => {}}>
         {#if addNavHrefForAnchor}
           {#if appSwitcherItems && appSwitcherItems.length === 1}
@@ -243,7 +261,7 @@
                   on:click|preventDefault={() => toggleDropdownState('appSwitcherPopover')}
                   data-testid="app-switcher"
                 >
-                  <span class="fd-shellbar__title" data-testid="luigi-topnav-title">{$getTranslation(title)}</span>
+                  <span class="fd-button__text" data-testid="luigi-topnav-title">{$getTranslation(title)}</span>
                   <i class="sap-icon sap-icon--megamenu fd-shellbar__button--icon" />
                 </a>
               {/if}
@@ -258,7 +276,7 @@
               on:click|preventDefault={() => toggleDropdownState('appSwitcherPopover')}
               data-testid="app-switcher"
             >
-              <span class="fd-shellbar__title" data-testid="luigi-topnav-title">{$getTranslation(title)}</span>
+              <span class="fd-button__text" data-testid="luigi-topnav-title">{$getTranslation(title)}</span>
               <i class="sap-icon sap-icon--megamenu fd-shellbar__button--icon" />
             </a>
           {/if}
@@ -332,13 +350,10 @@
 {/if}
 
 <style lang="scss">
-  // Force height because of base64 img src
-  .lui-customlogo img {
-    height: 24px;
-  }
-
-  .fd-shellbar__logo {
-    margin: 0 0.5rem;
+  .lui-customlogo {
+    display: flex;
+    align-items: center;
+    min-height: 24px;
   }
 
   .fd-shellbar__logo,
@@ -349,6 +364,15 @@
   @media (max-width: $desktopMinWidth) {
     .fd-shellbar__subtitle {
       display: none;
+    }
+  }
+
+  @media (max-width: $mobileMinWidth) {
+    :global(.fd-shellbar__group--product) {
+      .fd-shellbar__separator,
+      .fd-shellbar__title {
+        display: none;
+      }
     }
   }
 </style>

@@ -199,7 +199,7 @@ describe('JS-TEST-APP 4', () => {
       });
       cy.get('body').click();
       cy.tab();
-      cy.get('.fd-shellbar__logo').should('have.focus');
+      cy.get('.fd-shellbar__branding').should('have.focus');
     });
     it('Shellbar logo gets focused first with btpLayout', () => {
       newConfig.settings.btpToolLayout = true;
@@ -213,7 +213,66 @@ describe('JS-TEST-APP 4', () => {
       cy.get('body').click();
       cy.tab();
       cy.tab();
-      cy.get('.fd-shellbar__logo').should('have.focus');
+      cy.get('.fd-shellbar__branding').should('have.focus');
+    });
+  });
+
+  describe('Open user menu with keyboard', () => {
+    let newConfig;
+    beforeEach(() => {
+      newConfig = structuredClone(defaultLuigiConfig);
+      newConfig.settings.responsiveNavigation = 'Fiori3';
+      newConfig.settings.profileType = 'Fiori3';
+      newConfig.settings.experimental = {
+        profileMenuFiori3: true
+      };
+      newConfig.navigation.profile = {
+        logout: { label: 'Sign Out', icon: 'sys-cancel' },
+        items: [
+          {
+            label: 'Luigi in Github',
+            link: '/simple'
+          }
+        ],
+        staticUserInfoFn: () => {
+          return new Promise((resolve) => {
+            resolve({
+              name: 'Static User',
+              initials: 'LU',
+              email: 'luigi@mbro.com'
+            });
+          });
+        }
+      };
+      newConfig.tag = 'user-settings-dialog';
+    });
+
+    it('Open user menu by pressing enter', () => {
+      cy.visitTestAppLoggedIn('/', newConfig);
+      cy.get('#profilePopover').should('have.attr', 'aria-hidden', 'true');
+      cy.get('.fd-user-menu__control').should('have.attr', 'aria-expanded', 'false');
+      cy.get('body').click();
+      cy.tab();
+      cy.tab();
+      cy.tab();
+      cy.tab();
+      cy.get('.fd-user-menu__control').should('have.focus').type('{enter}');
+      cy.get('#profilePopover').should('have.attr', 'aria-hidden', 'false');
+      cy.get('.fd-user-menu__control').should('have.attr', 'aria-expanded', 'true');
+    });
+
+    it('Open user menu by pressing space', () => {
+      cy.visitTestAppLoggedIn('/', newConfig);
+      cy.get('#profilePopover').should('have.attr', 'aria-hidden', 'true');
+      cy.get('.fd-user-menu__control').should('have.attr', 'aria-expanded', 'false');
+      cy.get('body').click();
+      cy.tab();
+      cy.tab();
+      cy.tab();
+      cy.tab();
+      cy.get('.fd-user-menu__control').should('have.focus').type(' ');
+      cy.get('#profilePopover').should('have.attr', 'aria-hidden', 'false');
+      cy.get('.fd-user-menu__control').should('have.attr', 'aria-expanded', 'true');
     });
   });
 
@@ -287,6 +346,272 @@ describe('JS-TEST-APP 4', () => {
       cy.get('#profilePopover').should('be.visible');
       cy.get('.iframeContainer').click();
       cy.get('#profilePopover').should('not.be.visible');
+    });
+  });
+
+  describe('A11y for vega', () => {
+    let newConfig;
+    beforeEach(() => {
+      newConfig = structuredClone(defaultLuigiConfig);
+      newConfig.settings.sideNav = {
+        style: 'vega',
+        subCategoryDelimiter: '=>'
+      };
+      newConfig.settings.profileType = 'Fiori3';
+
+      newConfig.navigation.nodes[0].children.push(
+        {
+          pathSegment: 'mf1',
+          label: 'MF 1',
+          viewUrl: '/examples/microfrontends/multipurpose.html',
+          context: { test: 'tets' }
+        },
+        {
+          pathSegment: 'mf2',
+          label: 'MF 2',
+          viewUrl: '/examples/microfrontends/multipurpose.html',
+          context: { test: 'tets' }
+        },
+        {
+          pathSegment: 'node1',
+          label: 'Node 1',
+          category: { label: 'My Cat', collapsible: true, id: 'mycat' },
+          viewUrl: '/examples/microfrontends/multipurpose.html',
+          context: {
+            title: 'Node 1',
+            content: 'Content of node 1'
+          }
+        },
+        {
+          pathSegment: 'node2',
+          label: 'Node 2',
+          category: 'mycat',
+          viewUrl: '/examples/microfrontends/multipurpose.html',
+          context: {
+            title: 'Node 2',
+            content: 'Content of node 2'
+          }
+        },
+        {
+          label: 'Luigi Github Page',
+          category: {
+            id: 'myCat',
+            label: 'My Category',
+            collapsible: true,
+            icon: 'home'
+          },
+          externalLink: {
+            url: 'https://github.com/SAP/luigi'
+          }
+        },
+        {
+          label: 'Node1',
+          category: {
+            id: 'myCat=>subCat',
+            label: 'My Subcategory',
+            collapsible: true,
+            icon: 'group'
+          },
+          externalLink: {
+            url: 'https://sap.github.io/fundamental-styles'
+          }
+        },
+        {
+          label: 'Node2',
+          category: 'myCat=>subCat',
+          viewUrl: '/examples/microfrontends/multipurpose.html'
+        },
+        {
+          label: 'Node1',
+          category: 'myCat=>subCat2',
+          viewUrl: '/examples/microfrontends/multipurpose.html'
+        },
+        {
+          label: 'Node2',
+          category: 'myCat=>subCat2',
+          viewUrl: '/examples/microfrontends/multipurpose.html'
+        },
+        {
+          label: 'Parent Cat Node',
+          category: 'myCat',
+          viewUrl: '/examples/microfrontends/multipurpose.html'
+        },
+        {
+          category: {
+            id: 'cat2',
+            label: 'Cat 2',
+            isGroup: true
+          }
+        },
+        {
+          label: 'blabla',
+          pathSegment: 'blabla',
+          category: 'cat2=>sub1',
+          viewUrl: '/examples/microfrontends/multipurpose.html'
+        }
+      );
+    });
+    it('Left nav a11y with vega', () => {
+      cy.visitTestApp('/home', newConfig);
+      cy.document().then((doc) => {
+        const link = doc.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = '/node_modules/@luigi-project/core/luigi_horizon.css';
+        doc.head.appendChild(link);
+      });
+      cy.wait(500);
+      cy.get('body').click();
+      for (let i = 0; i < 5; i++) {
+        cy.tab();
+      }
+      cy.get('.fd-app__sidebar .fd-navigation-list__text').contains('Section one').type('{enter}');
+      cy.get('[title="Section one"]').should('have.class', 'is-selected');
+
+      cy.get('.fd-navigation-list .level-2').should('not.exist');
+      cy.tab().type('{enter}');
+      cy.tab().type('{enter}');
+      cy.tab().type('{enter}');
+      cy.tab().type('{enter}');
+      cy.tab().type('{enter}');
+      cy.get('.fd-navigation-list .level-2').should('be.visible');
+      cy.get('.fd-navigation-list .level-2').contains('Node 1').should('be.visible');
+    });
+    // it.only('More btn in left nav vega style', () => {
+    //   cy.visitTestApp('/home', newConfig);
+    //   cy.get('.fd-shellbar__button.fd-button.fd-button--transparent.lui-burger').click();
+    // });
+  });
+
+  describe('A11y for header', () => {
+    let newConfig;
+    beforeEach(() => {
+      newConfig = structuredClone(defaultLuigiConfig);
+      newConfig.settings.header = {
+        title: 'Test App'
+      };
+      newConfig.tag = 'header-a11y';
+      newConfig.settings.sideNav = {
+        style: 'vega',
+        displayFooterWhenCollapsed: true
+      };
+    });
+
+    it('Header contains heading role', () => {
+      cy.visitTestApp('/home', newConfig);
+      cy.get('#app[configversion="header-a11y"]');
+      cy.get('.fd-shellbar__group--product').should('have.attr', 'aria-level', 1);
+      cy.get('.fd-shellbar__group--product').should('have.attr', 'role', 'heading');
+    });
+
+    it('Header has correct aria-labels', () => {
+      cy.visitTestApp('/home', newConfig);
+      newConfig.settings.customTranslationImplementation = () => {
+        return {
+          getTranslation: (key, interpolations, locale) => {
+            return '*' + key + '*';
+          }
+        };
+      };
+      cy.get('#app[configversion="header-a11y"]');
+      cy.get('.fd-shellbar__branding').should('have.attr', 'aria-label', '*Test App*');
+    });
+  });
+
+  describe('Context switcher keyboard navigation', () => {
+    let newConfig;
+
+    beforeEach(() => {
+      newConfig = structuredClone(defaultLuigiConfig);
+      newConfig.navigation.addNavHrefs = true;
+      newConfig.navigation.nodes.push({
+        hideFromNav: true,
+        pathSegment: 'environments',
+        viewUrl: '/examples/microfrontends/multipurpose.html',
+        children: [
+          {
+            pathSegment: ':environmentId',
+            viewUrl: '/examples/microfrontends/multipurpose.html'
+          }
+        ]
+      });
+      newConfig.navigation.contextSwitcher = {
+        defaultLabel: 'Select Environment',
+        parentNodePath: '/environments',
+        lazyloadOptions: false,
+        options: [
+          { label: 'Environment 1', pathValue: 'env1' },
+          { label: 'Environment 2', pathValue: 'env2' }
+        ]
+      };
+    });
+
+    it('exposes expanded state and moves between options with arrow keys', () => {
+      cy.visitTestApp('/', newConfig);
+      cy.get('[data-testid="luigi-contextswitcher-button"]').should('have.attr', 'aria-expanded', 'false');
+      cy.get('[data-testid="luigi-contextswitcher-button"]').click();
+      cy.get('#contextSwitcherPopover').should('have.attr', 'aria-hidden', 'false');
+      cy.get('[data-testid="luigi-contextswitcher-button"]').should('have.attr', 'aria-expanded', 'true');
+      cy.get('#contextSwitcherPopover a.fd-menu__link').should('have.length.at.least', 2);
+      cy.get('#contextSwitcherPopover a.fd-menu__link').first().should('be.visible');
+      cy.get('[data-testid="luigi-contextswitcher-button"]').should('have.focus').type('{downArrow}');
+      cy.get('#contextSwitcherPopover a.fd-menu__link').first().should('have.focus');
+      cy.focused().type('{downArrow}');
+      cy.get('#contextSwitcherPopover a.fd-menu__link').eq(1).should('have.focus');
+      cy.focused().type('{upArrow}');
+      cy.get('#contextSwitcherPopover a.fd-menu__link').first().should('have.focus');
+    });
+
+    it('moves between options with Tab and Shift+Tab', () => {
+      cy.visitTestApp('/', newConfig);
+      cy.get('[data-testid="luigi-contextswitcher-button"]').click();
+      cy.get('#contextSwitcherPopover a.fd-menu__link').should('have.length.at.least', 2);
+      cy.get('#contextSwitcherPopover a.fd-menu__link').first().should('be.visible');
+      cy.get('[data-testid="luigi-contextswitcher-button"]').should('have.focus').type('{downArrow}');
+      cy.get('#contextSwitcherPopover a.fd-menu__link').first().should('have.focus');
+      cy.tab();
+      cy.get('#contextSwitcherPopover a.fd-menu__link').eq(1).should('have.focus');
+      cy.tab({ shift: true });
+      cy.get('#contextSwitcherPopover a.fd-menu__link').first().should('have.focus');
+    });
+
+    it('keeps the menu open after Enter on the trigger', () => {
+      cy.visitTestApp('/', newConfig);
+      cy.get('[data-testid="luigi-contextswitcher-button"]').should('have.attr', 'aria-expanded', 'false');
+      cy.get('[data-testid="luigi-contextswitcher-button"]').focus().should('have.focus').type('{enter}');
+      cy.get('#contextSwitcherPopover').should('have.attr', 'aria-hidden', 'false');
+      cy.get('[data-testid="luigi-contextswitcher-button"]').should('have.attr', 'aria-expanded', 'true');
+    });
+
+    it('closes on Escape and restores focus to the trigger', () => {
+      cy.visitTestApp('/', newConfig);
+      cy.get('[data-testid="luigi-contextswitcher-button"]').click();
+      cy.get('#contextSwitcherPopover a.fd-menu__link').first().should('be.visible');
+      cy.get('[data-testid="luigi-contextswitcher-button"]').should('have.focus').type('{downArrow}');
+      cy.get('#contextSwitcherPopover a.fd-menu__link').first().should('have.focus');
+      cy.focused().type('{esc}');
+      cy.get('#contextSwitcherPopover').should('have.attr', 'aria-hidden', 'true');
+      cy.get('[data-testid="luigi-contextswitcher-button"]').should('have.attr', 'aria-expanded', 'false');
+      cy.get('[data-testid="luigi-contextswitcher-button"]').should('have.focus');
+    });
+
+    it('leaves keyboard navigation to customOptionsRenderer', () => {
+      newConfig.navigation.contextSwitcher.customOptionsRenderer = (item) => {
+        const option = document.createElement('a');
+        option.setAttribute('href', item.link);
+        option.setAttribute('tabindex', '0');
+        option.setAttribute('role', 'option');
+        option.classList.add('lui-ctx-switch-option');
+        option.textContent = item.label;
+        return option.outerHTML;
+      };
+      cy.visitTestApp('/', newConfig);
+      cy.get('[data-testid="luigi-contextswitcher-button"]').click();
+      cy.get('#contextSwitcherPopover').should('have.attr', 'aria-hidden', 'false');
+      cy.get('#contextSwitcherPopover a.fd-menu__link').should('not.exist');
+      cy.get('#contextSwitcherPopover .lui-ctx-switch-option').should('have.length.at.least', 2);
+      cy.get('[data-testid="luigi-contextswitcher-button"]').should('have.focus');
+      cy.focused().type('{downArrow}');
+      cy.get('[data-testid="luigi-contextswitcher-button"]').should('have.focus');
     });
   });
 });

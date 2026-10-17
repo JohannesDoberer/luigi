@@ -203,7 +203,7 @@
                       class="fd-text"
                       data-testid="lui-us-input{index}"
                       id="fd-form-input-{index}"
-                      disabled={schemaItem.isEditable === undefined || schemaItem.isEditable ? false : true}
+                      {...schemaItem.isEditable !== undefined && !schemaItem.isEditable ? { disabled: '' } : {}}
                     >
                       {storedUserSettingData[userSettingGroup[0]][key]}
                     </div>
@@ -213,6 +213,7 @@
                   <div class="fd-form-item">
                     <div class="fd-popover">
                       <!-- svelte-ignore a11y-click-events-have-key-events -->
+                      <!-- svelte-ignore a11y-no-static-element-interactions -->
                       <div
                         class="fd-popover__control"
                         aria-expanded="false"
@@ -233,7 +234,7 @@
                             <span
                               class="fd-select__text-content"
                               data-testid="lui-us-input{index}"
-                              disabled={schemaItem.isEditable === undefined || schemaItem.isEditable ? false : true}
+                              {...schemaItem.isEditable !== undefined && !schemaItem.isEditable ? { disabled: '' } : {}}
                               >{getLabelForValue(storedUserSettingData[userSettingGroup[0]][key], schemaItem.options)}
                             </span>
                             <span class="fd-button fd-button--transparent fd-select__button lui-activate-dropdown">

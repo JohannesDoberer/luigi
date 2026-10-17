@@ -34,7 +34,7 @@ describe('Iframe Container Test', () => {
       });
   });
 
-  it('showAlert', () => {
+  it('updateModalPathInternalNavigation', () => {
     cy.on('window:alert', stub);
 
     cy.get(containerSelector)
@@ -43,12 +43,56 @@ describe('Iframe Container Test', () => {
       .then((iframe) => {
         const $body = iframe.contents().find('body');
         cy.wrap($body)
-          .contains('test showAlert')
+          .contains('test update modal path internal navigation')
           .click()
           .then(() => {
-            cy.wrap(stub).should('have.been.calledWith', 'show-alert-request message received: {"isTrusted":true}');
+            expect(stub.getCall(1)).to.be.calledWith(
+              'LuigiClient.linkManager().updateModalPathInternalNavigation("/test/route")'
+            );
           });
       });
+  });
+
+  it('showConfirmationModal callback', () => {
+    cy.get(containerSelector).then((targetCnt) => {
+      cy.spy(targetCnt[0], 'notifyConfirmationModalClosed').as('notifyConfirmationModalClosed');
+
+      cy.get(targetCnt)
+        .shadow()
+        .get('iframe')
+        .then((iframe) => {
+          const $body = iframe.contents().find('body');
+
+          cy.wrap($body)
+            .contains('test confirmation modal callback')
+            .click()
+            .then(() => {
+              cy.get('@notifyConfirmationModalClosed').should('have.been.called');
+              cy.wrap($body).contains('showConfirmationModal: true');
+            });
+        });
+    });
+  });
+
+  it('showAlert callback', () => {
+    cy.get(containerSelector).then((targetCnt) => {
+      cy.spy(targetCnt[0], 'notifyAlertClosed').as('notifyAlertClosed');
+
+      cy.get(targetCnt)
+        .shadow()
+        .get('iframe')
+        .then((iframe) => {
+          const $body = iframe.contents().find('body');
+
+          cy.wrap($body)
+            .contains('test alert callback')
+            .click()
+            .then(() => {
+              cy.get('@notifyAlertClosed').should('have.been.called');
+              cy.wrap($body).contains('showAlert: true');
+            });
+        });
+    });
   });
 
   it('showAlert with notifyAlertClosed', () => {
@@ -145,7 +189,7 @@ describe('Iframe Container Test', () => {
               .then(() => {
                 cy.wrap(stub).should(
                   'have.been.calledWith',
-                  'Custom message received: {"id":"my.contextMessage","_metaData":{},"data":{"myContext":"some context data"}}'
+                  'Custom message received: {"id":"my.contextMessage","_metaData":{},"data":{"myContext":"some context data","pathParams":{"path":"param"}}}'
                 );
 
                 //Test if context property on luigi container is also updated
@@ -206,7 +250,7 @@ describe('Iframe Container Test', () => {
       });
   });
 
-  it('openAsModal', () => {
+  it('openAsModal with close callback', () => {
     cy.on('window:confirm', () => false);
 
     cy.get(containerSelector)
@@ -214,8 +258,12 @@ describe('Iframe Container Test', () => {
       .get('iframe')
       .then((iframe) => {
         const $body = iframe.contents().find('body');
-        cy.wrap($body).contains('test openAsModal()').click();
-
+        cy.wrap($body)
+          .contains('openAsModal with close callback')
+          .click()
+          .then(() => {
+            cy.wrap($body).contains('Hello from promise! Modal is closed');
+          });
         cy.location().should((loc) => {
           expect(loc.hash).to.eq('#openAsModal-iframe');
         });
@@ -295,6 +343,210 @@ describe('Iframe Container Test', () => {
           .click()
           .then(() => {
             cy.wrap($body).contains('searchParams: {"search":"param"}');
+          });
+      });
+  });
+
+  it('getCurrentRoute', () => {
+    const getIframeWindow = (iframe) => {
+      return cy.get(iframe).its('0.contentWindow').should('exist');
+    };
+
+    cy.get(containerSelector)
+      .shadow()
+      .get('iframe')
+      .then((iframe) => {
+        const $body = iframe.contents().find('body');
+
+        getIframeWindow(iframe).then((win) => {
+          cy.spy(win, 'postMessage').as('postMessage');
+
+          cy.wrap($body)
+            .contains('test get current route')
+            .click()
+            .then(() => {
+              cy.get('@postMessage')
+                .should('be.calledWith', Cypress.sinon.match.object, 'http://localhost:8080')
+                .its('firstCall.args.0')
+                .should('deep.include', { msg: 'luigi.navigation.currentRoute.answer' });
+              cy.wrap($body).contains('getCurrentRoute: /test/route');
+            });
+        });
+      });
+  });
+
+  it('getPathExists', () => {
+    const getIframeWindow = (iframe) => {
+      return cy.get(iframe).its('0.contentWindow').should('exist');
+    };
+
+    cy.get(containerSelector)
+      .shadow()
+      .get('iframe')
+      .then((iframe) => {
+        const $body = iframe.contents().find('body');
+
+        getIframeWindow(iframe).then((win) => {
+          cy.spy(win, 'postMessage').as('postMessage');
+
+          cy.wrap($body)
+            .contains('test check path exists')
+            .click()
+            .then(() => {
+              cy.get('@postMessage')
+                .should('be.calledWith', Cypress.sinon.match.object, 'http://localhost:8080')
+                .its('firstCall.args.0')
+                .should('deep.include', { msg: 'luigi.navigation.pathExists.answer' });
+              cy.wrap($body).contains('pathExists: true');
+            });
+        });
+      });
+  });
+
+  it('getCurrentTheme + update currentTheme', () => {
+    const getIframeWindow = (iframe) => {
+      return cy.get(iframe).its('0.contentWindow').should('exist');
+    };
+
+    cy.get(containerSelector)
+      .shadow()
+      .get('iframe')
+      .then((iframe) => {
+        const $body = iframe.contents().find('body');
+
+        getIframeWindow(iframe).then((win) => {
+          cy.spy(win, 'postMessage').as('postMessage');
+
+          cy.wrap($body)
+            .contains('get current theme')
+            .click()
+            .then(() => {
+              cy.wrap($body).contains('currentTheme: "sap_horizon_dark"');
+            });
+        });
+      });
+
+    cy.get('button[id="change-theme"]').click();
+
+    cy.get(containerSelector)
+      .shadow()
+      .get('iframe')
+      .then((iframe) => {
+        const $body = iframe.contents().find('body');
+
+        getIframeWindow(iframe).then((win) => {
+          // cy.spy(win, 'postMessage').as('postMessage');
+
+          cy.wrap($body)
+            .contains('get current theme')
+            .click()
+            .then(() => {
+              cy.wrap($body).contains('currentTheme: "sap_horizon_light"');
+            });
+        });
+      });
+  });
+
+  it('getCurrentLocale + update current locale', () => {
+    const getIframeWindow = (iframe) => {
+      return cy.get(iframe).its('0.contentWindow').should('exist');
+    };
+
+    cy.get(containerSelector)
+      .shadow()
+      .get('iframe')
+      .then((iframe) => {
+        const $body = iframe.contents().find('body');
+
+        getIframeWindow(iframe).then((win) => {
+          cy.spy(win, 'postMessage').as('postMessage');
+
+          cy.wrap($body)
+            .contains('get current locale')
+            .click()
+            .then(() => {
+              cy.wrap($body).contains('currentLocale: "en"');
+            });
+        });
+      });
+
+    cy.get('button[id="change-locale"]').click();
+
+    cy.get(containerSelector)
+      .shadow()
+      .get('iframe')
+      .then((iframe) => {
+        const $body = iframe.contents().find('body');
+
+        getIframeWindow(iframe).then((win) => {
+          // cy.spy(win, 'postMessage').as('postMessage');
+
+          cy.wrap($body)
+            .contains('get current locale')
+            .click()
+            .then(() => {
+              cy.wrap($body).contains('currentLocale: "de"');
+            });
+        });
+      });
+  });
+
+  it('getActiveFeatureToggleList + change featureToggleList', () => {
+    const getIframeWindow = (iframe) => {
+      return cy.get(iframe).its('0.contentWindow').should('exist');
+    };
+
+    cy.get(containerSelector)
+      .shadow()
+      .get('iframe')
+      .then((iframe) => {
+        const $body = iframe.contents().find('body');
+
+        getIframeWindow(iframe).then((win) => {
+          cy.spy(win, 'postMessage').as('postMessage');
+
+          cy.wrap($body)
+            .contains('get active feature toggle list')
+            .click()
+            .then(() => {
+              cy.wrap($body).contains('activeFeatureToggleList: ["feature1","feature2"]');
+            });
+        });
+      });
+    cy.get('button[id="change-feature-toggle-list"]').click();
+
+    cy.get(containerSelector)
+      .shadow()
+      .get('iframe')
+      .then((iframe) => {
+        const $body = iframe.contents().find('body');
+
+        getIframeWindow(iframe).then((win) => {
+          // cy.spy(win, 'postMessage').as('postMessage');
+
+          cy.wrap($body)
+            .contains('get active feature toggle list')
+            .click()
+            .then(() => {
+              cy.wrap($body).contains('activeFeatureToggleList: ["feature3"]');
+            });
+        });
+      });
+  });
+
+  it('closeCurrentModal', () => {
+    cy.on('window:alert', stub);
+
+    cy.get(containerSelector)
+      .shadow()
+      .get('iframe')
+      .then((iframe) => {
+        const $body = iframe.contents().find('body');
+        cy.wrap($body)
+          .contains('test close current modal')
+          .click()
+          .then(() => {
+            cy.wrap(stub).should('have.been.calledWith', 'close-current-modal-request');
           });
       });
   });

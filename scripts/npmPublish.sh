@@ -8,20 +8,6 @@ BASE_DIR="$( cd "$(dirname "$0")" ; pwd -P )"
 
 source $BASE_DIR/shared/bashHelpers.sh
 
-# @luigi-project npm token
-function setLuigiNpmToken {
-  if [ "$TRAVIS" = "true" ]; then
-    if [ "$NPM_LUI_AUTH_TOKEN" = "" ]; then
-     echoe "NPM_LUI_AUTH_TOKEN is not set, skipping publishing."
-     exit 0
-    fi
-
-    # setup token when running in travis
-    echo "setLuigiNpmToken"
-    echo "//registry.npmjs.org/:_authToken=$NPM_LUI_AUTH_TOKEN" > ~/.npmrc
-    npm whoami
-  fi
-}
 
 function prepublishChecks {
   cd $BASE_DIR/../client/public
@@ -77,28 +63,18 @@ function publishPackage {
 
     echoe "Publishing $NAME@$VERSION ..."
 
-    npm publish $BASE_DIR/../$PUBLISH_FOLDER --access public
-    npm dist-tag add $NAME@$VERSION next
     if [[ $VERSION != *"rc"* ]] && [[ $VERSION != *"next."* ]]; then
-      echo "Tag $NAME@$VERSION with latest and next on npm"
-      npm dist-tag add $NAME@$VERSION latest
-      M_TAG=`echo $VERSION | cut -d "." -f 1,2 | tr . -`
-      npm dist-tag add $NAME@$VERSION v$M_TAG
-      echo "Tag $NAME@$VERSION with latest, next and v${M_TAG} on npm"
+      npm publish $BASE_DIR/../$PUBLISH_FOLDER --access public --tag latest
+      echo "Published $NAME@$VERSION with dist-tag latest"
     else
-      echo "Release candidate $NAME@$VERSION NOT tagged as latest"
+      npm publish $BASE_DIR/../$PUBLISH_FOLDER --access public --tag next
+      echo "Release candidate $NAME@$VERSION published with dist-tag next"
     fi
 
     echoe "Published $NAME@$VERSION"
   fi # end NPM_GREP
 }
 
-function removeNpmToken {
-  if [ "$TRAVIS" = "true" ]; then
-    # setup token when running in travis
-    echo "" > ~/.npmrc
-  fi
-}
 
 function checkRequiredFiles {
   args=("$@")
@@ -112,12 +88,6 @@ function checkRequiredFiles {
   done
 }
 
-
-
-
-setLuigiNpmToken
-
-
 if [ "$1" = "cra-release" ]; then
   echo "$PWD"
   checkRequiredFiles "cra-template/template/public" "index.html" "luigi-config.js"
@@ -126,10 +96,20 @@ elif [ "$1" = "luigi-container-release" ]; then
   echo "$PWD"
   checkRequiredFiles "container/public" "bundle.js" "bundle.js.map" "index.d.ts" "LuigiCompoundContainer.svelte.d.ts" "LuigiContainer.svelte.d.ts" "package.json" "README.md"
   publishPackage "container" "container/public"
+elif [ "$1" = "luigi-headless-release" ]; then
+  echo "$PWD"
+  checkRequiredFiles "core-modular/public" "luigi.js" "luigi.js.map" "main.d.ts" "package.json" "README.md"
+  publishPackage "core-modular" "core-modular/public"
 elif [ "$1" = "luigi-client-support-ui5-release" ]; then
   echo "$PWD"
   checkRequiredFiles "client-frameworks-support/client-support-ui5/dist" "package.json" "README.md" "ui5-support-lib.js"
   publishPackage "client-frameworks-support/client-support-ui5" "client-frameworks-support/client-support-ui5/dist"
+elif [ "$1" = "luigi-client-support-angular-release" ]; then
+  echo "$PWD"
+  checkRequiredFiles "client-frameworks-support/client-support-angular/dist/client-support-angular" "package.json" "README.md"
+  checkRequiredFiles "client-frameworks-support/client-support-angular/dist/client-support-angular/types" "luigi-project-client-support-angular.d.ts"
+  checkRequiredFiles "client-frameworks-support/client-support-angular/dist/client-support-angular/fesm2022" "luigi-project-client-support-angular.mjs" "luigi-project-client-support-angular.mjs.map"
+  publishPackage "client-frameworks-support/client-support-angular" "client-frameworks-support/client-support-angular/dist/client-support-angular"
 elif [ "$1" = "auth-oidc-pkce-plugin-release" ]; then
   echo "$PWD"
   checkRequiredFiles "plugins/auth/public/auth-oidc-pkce" "plugin.js" "README.md"
@@ -148,12 +128,6 @@ else
     publishPackage "plugins" "plugins/auth/public/auth-oidc"
   fi
 
-  # Luigi Client Support Anguar
-  if ( prepublishCheck "client-frameworks-support/client-support-angular/dist/client-support-angular"); then
-    checkRequiredFiles "client-frameworks-support/client-support-angular/dist/client-support-angular" "public-api.d.ts" "README.md"
-    publishPackage "client-frameworks-support/client-support-angular" "client-frameworks-support/client-support-angular/dist/client-support-angular"
-  fi
-
   # Luigi Testing Utilities
   if ( prepublishCheck "client-frameworks-support/testing-utilities/dist"); then
     checkRequiredFiles "client-frameworks-support/testing-utilities/dist" "luigi-mock-util.d.ts" "index.d.ts" "README.md"
@@ -167,6 +141,3 @@ else
   checkRequiredFiles "client/public" "luigi-client.d.ts" "luigi-client.js" "README.md"
   publishPackage "client" "client/public"
 fi
-
-
-removeNpmToken

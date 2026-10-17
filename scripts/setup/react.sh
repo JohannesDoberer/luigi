@@ -8,25 +8,28 @@ else
   folder=$1
   echo "Luigi project folder name (lowercase letters only): $folder"
 fi
+PKG_MGR="${LUIGI_PKG_MGR:-npm}"
 
 # create sample react app
 npx create-react-app $folder && cd $folder
 
 # eject project to customize webpack configs
-echo yes | npm run eject
+echo yes | $PKG_MGR run eject
 
 # install dependencies
-npm i -P @luigi-project/core @luigi-project/client fundamental-styles@0.11.0 @sap-theming/theming-base-content react-router-dom@5.1.2
-npm i copy-webpack-plugin@5 webpack webpack-cli @babel/core @babel/preset-env babel-loader --save-dev
+$PKG_MGR i -P @luigi-project/core @luigi-project/client @sap-theming/theming-base-content react-router@7
+$PKG_MGR i copy-webpack-plugin@13 webpack@5 webpack-cli@6 @babel/core@7 @babel/preset-env@7 babel-loader --save-dev
 
 # replace strings in some places
 sed "s/const HtmlWebpackPlugin = require('html-webpack-plugin');/const HtmlWebpackPlugin = require('html-webpack-plugin');const CopyWebpackPlugin = require('copy-webpack-plugin');/g" config/webpack.config.js > config/webpack.config.tmp.js && mv config/webpack.config.tmp.js config/webpack.config.js
-sed "s/new HtmlWebpackPlugin(/new CopyWebpackPlugin([\
-  {context: 'public', to: 'index.html', from: 'index.html'  },\
-  {context: 'node_modules\/@luigi-project\/core',to: '.\/luigi-core',from: {glob: '**',dot: true}}],\
-  {ignore: ['.gitkeep', '**\/.DS_Store', '**\/Thumbs.db'],debug: 'warning'\
-  }),\
-  new HtmlWebpackPlugin(/g" config/webpack.config.js > config/webpack.config.tmp.js && mv config/webpack.config.tmp.js config/webpack.config.js
+sed "s/new HtmlWebpackPlugin(/new CopyWebpackPlugin({\
+  patterns: [\
+    {from: 'index.html', context: 'public', to: 'index.html'},\
+    {from: '**\/*', context: 'node_modules\/@luigi-project\/core', to: '.\/luigi-core',\
+      globOptions: {ignore: ['.gitkeep', '**\/.DS_Store', '**\/Thumbs.db']}}\
+  ]\
+}),\
+new HtmlWebpackPlugin(/g" config/webpack.config.js > config/webpack.config.tmp.js && mv config/webpack.config.tmp.js config/webpack.config.js
 sed "s/template: paths.appHtml,/template: paths.appHtml,\
   filename: 'sampleapp.html',/g" config/webpack.config.js > config/webpack.config.tmp.js && mv config/webpack.config.tmp.js config/webpack.config.js
 sed "s/public\/index.html/public\/sampleapp.html/g" config/paths.js > config/paths.tmp.js && mv config/paths.tmp.js config/paths.js
@@ -53,21 +56,21 @@ echo '{
 }'>.eslintrc.json
 # downloads
 mkdir -p src/luigi-config
-curl https://raw.githubusercontent.com/SAP/luigi/main/core/examples/luigi-example-react/public/index.html > public/index.html
-curl https://raw.githubusercontent.com/SAP/luigi/main/core/examples/luigi-example-react/public/logo.png > public/logo.png
-curl https://raw.githubusercontent.com/SAP/luigi/main/core/examples/luigi-example-react/public/sampleapp.html > public/sampleapp.html
-curl https://raw.githubusercontent.com/SAP/luigi/main/core/examples/luigi-example-react/public/luigi-config-file.js > src/luigi-config/luigi-config.es6.js
+curl https://raw.githubusercontent.com/luigi-project/luigi/main/core/examples/luigi-example-react/public/index.html > public/index.html
+curl https://raw.githubusercontent.com/luigi-project/luigi/main/core/examples/luigi-example-react/public/logo.png > public/logo.png
+curl https://raw.githubusercontent.com/luigi-project/luigi/main/core/examples/luigi-example-react/public/sampleapp.html > public/sampleapp.html
+curl https://raw.githubusercontent.com/luigi-project/luigi/main/core/examples/luigi-example-react/public/luigi-config-file.js > src/luigi-config/luigi-config.es6.js
 
 
 # add index.js
-curl https://raw.githubusercontent.com/SAP/luigi/main/core/examples/luigi-example-react/src/index-file.js > src/index.js
+curl https://raw.githubusercontent.com/luigi-project/luigi/main/core/examples/luigi-example-react/src/index-file.js > src/index.js
 
 # add views
 mkdir src/views
-curl https://raw.githubusercontent.com/SAP/luigi/main/core/examples/luigi-example-react/src/views/home.js > src/views/home.js
-curl https://raw.githubusercontent.com/SAP/luigi/main/core/examples/luigi-example-react/src/views/sample1.js > src/views/sample1.js
-curl https://raw.githubusercontent.com/SAP/luigi/main/core/examples/luigi-example-react/src/views/sample2.js > src/views/sample2.js
+curl https://raw.githubusercontent.com/luigi-project/luigi/main/core/examples/luigi-example-react/src/views/home.js > src/views/home.js
+curl https://raw.githubusercontent.com/luigi-project/luigi/main/core/examples/luigi-example-react/src/views/sample1.js > src/views/sample1.js
+curl https://raw.githubusercontent.com/luigi-project/luigi/main/core/examples/luigi-example-react/src/views/sample2.js > src/views/sample2.js
 
-npm i
-npm run buildConfig
-npm start
+$PKG_MGR i
+$PKG_MGR run buildConfig
+$PKG_MGR start

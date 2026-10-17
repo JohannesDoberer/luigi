@@ -5,7 +5,7 @@
   "main": "plugin.js",
   "repository": {
     "type": "git",
-    "url": "ssh://github.com/SAP/luigi.git"
+    "url": "ssh://github.com/luigi-project/luigi.git"
   },
   "publishConfig": {
     "tag": "luigi-plugin-auth-oidc-pkce"
@@ -17,5 +17,8 @@
     "openid connect",
     "provider"
   ],
+  "peerDependencies": {
+    "oidc-client-ts": "^3.0.0"
+  },
   "version": "0.42.0"
 }

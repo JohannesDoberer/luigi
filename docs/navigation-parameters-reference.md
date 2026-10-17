@@ -184,7 +184,7 @@ Check our [Advanced Scenarios](advanced-scenarios.md) page for an example.
 
 ### nodeChangeHook
 - **type**: function
-- **description**: allows you to invoke and execute a specific function on the global level when a request to navigate to the node occurs. The function receives two node objects as input parameters: the previous node and current node, as described in the configuration.
+- **description**: allows you to invoke and execute a specific function on the global level when a request to navigate to the node occurs. The function receives two node objects as input parameters: the previous node and current node, as described in the configuration. An additional third parameter contains an auxiliary data object with the property `currentContext`, containing the fully resolved context object that has been sent to the micro frontend.
 
 ### nodes
 - **type**: array | object
@@ -249,14 +249,14 @@ settings: {
 - **type**: object
 - **description**: contains key-object pairs, where the key is the view group name as specified in the node parameters, and the object contains key-value pairs. In each key-value pair, the key is the feature name and the value is the actual setting. The following options are supported:
 - **attributes**:
+  - **noClientCheck**(boolean): when set to `true`, it prevents a navigation check when reactivating the iframe
   - **preloadUrl**(string): needs to be an absolute URL of a micro frontend belonging to a view group. It cannot be an URL of a node. It is recommended that you use a dedicated small, visually empty view, which imports Luigi Client and is fine with getting an empty context, for example, without an access token. The **preloadUrl** parameter
  is also required for view group caching in case you need a view group iframe to refresh whenever you navigate back to it.
-  - **loadOnStartup**(boolean): when set to `true`, it loads the respective view group with the respective **preloadUrl** in the background as soon as the app first starts. 
+  - **loadOnStartup**(boolean): when set to `true`, it loads the respective view group with the respective **preloadUrl** in the background as soon as the app first starts.
 
 ### globalContext
 - **type**: object
 - **description**: contains key-object pairs which are inherited from all node contexts.
-
 
 ## Node parameters
 Node parameters are all the parameters that can be added to an individual navigation node in the `nodes:` section of the Luigi configuration file.
@@ -289,6 +289,34 @@ Node parameters are all the parameters that can be added to an individual naviga
   - **id** if this property is defined all nodes with the same category `id` will be grouped.
   - **titleExpandButton** adds the HTML `title` attribute with the defined value to the expand button.
   - **titleCollapseButton** adds the HTML `title` attribute with the defined value to the collapse button.
+  - **navigateOnClick** makes the category label itself navigable in the horizontal ([tab](navigation-parameters-reference.md#tabnav)) navigation, in addition to opening the drop-down. By default, clicking a category in the tab navigation only opens its drop-down menu; with `navigateOnClick` the tab text also navigates directly to a target node. It accepts either a boolean or a string:
+    - `true` navigates to the node that declares the category (the node that defines the category as an object). If that node has no `label` of its own, it acts solely as the click target and is not listed as a separate entry in the drop-down.
+    - a string navigates to the sibling node in the same category whose `pathSegment` matches the given value. If no sibling matches, no node is flagged as navigable. A matching node that has a `label` remains visible in the drop-down.
+    - This only applies to nodes rendered as tab navigation. (core-modular)
+- **example**:
+    ```javascript
+    // `navigateOnClick: true` — the category-declaring node is the click target.
+    // Because it has no label, it is hidden from the drop-down and only reachable
+    // by clicking the tab text.
+    children: [
+      {
+        pathSegment: 'overview',
+        category: { id: 'products', label: 'Products', navigateOnClick: true }
+      },
+      { pathSegment: 'details', label: 'Details', category: 'products' }
+    ]
+
+    // `navigateOnClick: '<pathSegment>'` — clicking the tab text navigates to the
+    // sibling with the matching pathSegment. A labelled target stays in the drop-down.
+    children: [
+      {
+        pathSegment: 'first',
+        label: 'First',
+        category: { id: 'products', label: 'Products', navigateOnClick: 'second' }
+      },
+      { pathSegment: 'second', label: 'Second', category: 'products' }
+    ]
+    ```
 
 ### children
 - **type**: array | function
@@ -613,13 +641,22 @@ runTimeErrorHandler: {
 ```
 - **since**: 1.15.0
 
+### drawer
+- **type**: object
+- **description**: opens a view in a drawer. Use these settings to configure if the drawer has a header, backdrop and size.
+- **attributes**: 
+  - **header**: boolean or object: By default, the header is visible. Title is node label and `x` is displayed to close the drawer view. The header could also be an object with a title attribute to specify an own title for the drawer component.
+  - **backdrop**: boolean: By default, it is set to false. If it is set to true the rest of the screen has a backdrop.
+  - **size**: `("l" | "m" | "s" | "xs")` size of the drawer (optional, default "s")
+- **since**: 1.6.0
+
 ### externalLink
 - **type**: object
 - **description**: indicates that the node links to an external URL. If this parameter is defined, **pathSegment** and **link** parameters are ignored.
 - **attributes**:
   - **sameWindow** defines if the external URL is opened in a new or current tab. The default value for this parameter
  is `false`.
-  - **URL** is the external URL that the node leads to. If you are using [localization](https://docs.luigi-project.io/docs/i18n) and translating your page into different languages, you can also add a **{i18n.currentLocale}** parameter to the URL part of your configuration.
+  - **url** is the external URL that the node leads to. If you are using [localization](https://docs.luigi-project.io/docs/i18n) and translating your page into different languages, you can also add a **{i18n.currentLocale}** parameter to the URL part of your configuration.
 
 ### hideFromNav
 - **type**: boolean
@@ -806,6 +843,43 @@ navigation: {
 tooltipText: 'Useful links'
 ```
 
+### titleResolver
+- **type**: object
+- **description**: dynamically resolves the title and icon of a navigation node via an HTTP request. Use this instead of a static **label** when the node title depends on runtime data (for example, a resource name fetched from an API). The response is cached per resolved request configuration, so repeated navigation to the same node does not trigger additional requests. Variable substitution using `${varName}` syntax is supported in `request.url`, `request.headers`, and `request.body`, where variable values are taken from the current navigation context.
+- **since**: v1.19.0
+- **attributes**:
+  - **request** (object, required): HTTP request configuration.
+    - **method** (string): HTTP method, for example `'GET'` or `'POST'`.
+    - **url** (string): endpoint URL. Supports `${varName}` substitution from the navigation context.
+    - **headers** (object): optional request headers. Supports `${varName}` substitution.
+    - **body** (object): optional request body. Supports `${varName}` substitution.
+  - **titlePropertyChain** (string): dot-notation path to extract the title value from the response object, for example `'data.project.displayName'`.
+    - **titleDecorator** (string): format string applied to the resolved title. Use `%s` as a placeholder for the title value, for example `'Project: %s'`.
+  - **fallbackTitle** (string): title shown when the resolved value is empty or the request fails. Supports i18n keys.
+    - **prerenderFallback** (boolean): if `true`, the **fallbackTitle** is displayed in the breadcrumb immediately while the request is still pending. If `false` or omitted, the breadcrumb shows `navigation.breadcrumbs.pendingItemLabel` during the pending state. Defaults to `false`.
+- **example**:
+```javascript
+{
+  pathSegment: 'project',
+  titleResolver: {
+    request: {
+      method: 'POST',
+      url: '/api/projects',
+      headers: {
+        authorization: 'Bearer ${token}'
+      },
+      body: {
+        variables: { projectId: '${projectId}' }
+      }
+    },
+    titlePropertyChain: 'data.project.displayName',
+    titleDecorator: 'Project: %s',
+    fallbackTitle: 'navigation.project.fallback',
+    prerenderFallback: true
+  }
+}
+```
+
 ### topNav
 - **type**: boolean
 - **description** children of the root node will not be rendered in the top navigation if this value is set to `false`. Instead, the children will be rendered in the left navigation (default) or in the horizontal navigation ([tabNav](#tabNav)) if this is configured on the node. This feature only works if the [nodes](#nodes) property is an object instead of an array. In that case, the root node will not be reflected in the URL.
@@ -866,7 +940,7 @@ navigation: {
 ### viewGroup
 - **type**: string
 - **description**: allows you to associate nodes to be rendered in the same iframe, as long as they belong to the same origin.
-The value of this parameter is considered as the view group ID. If you want to use this feature, you must set [preloadViewGroups](navigation-advanced.md#preloadViewGroups) to `true` and provide a preload URL for your view group ID in [viewGroupsSettings](navigation-advanced.md##viewGroupsSettings).
+The value of this parameter is considered as the view group ID. If you want to use this feature, you must set [preloadViewGroups](navigation-advanced.md#preloadViewGroups) to `true` and provide a preload URL for your view group ID in [viewGroupSettings](navigation-advanced.md#viewGroupSettings).
 For further explanations, see [this section](navigation-configuration.md#view-groups).
 - **example:**
 ```javascript
@@ -1034,7 +1108,7 @@ The profile section is a configurable drop-down list available in the top naviga
 
 ### items
 - **type**: array
-- **description**: an array of objects, each one being a link to a Luigi navigation node or an external URL.
+- **description**: an array of objects, each one being a link to a Luigi navigation node or an external URL. Items can also act as group headers containing sub-items when the **children** property is defined.
 - **attributes**:
   - **label** defines the text for the link.
   - **testId** is a string where you can define your own custom `testId` for E2E tests. If nothing is specified, it is the node's label written as one word and lower case (e.g. `label`).
@@ -1047,7 +1121,8 @@ The profile section is a configurable drop-down list available in the top naviga
  is ignored. It has the following attributes:
     - **sameWindow** defines if the external URL is opened in the current tab or in a new one. The default value for this attribute
    is `false`.
-    - **URL** is the external URL that the link leads to.
+    - **url** is the external URL that the link leads to.
+  - **children** is an array of sub-items displayed in an expandable submenu flyout. When this property is defined, the item acts as a non-clickable group header. Each child item supports the same attributes as a regular item (**label**, **icon**, **altText**, **testId**, **link**, **openNodeInModal**, **externalLink**). This feature is only available for the **vega** profile type.
 
 ### logout
 - **type**: object
@@ -1099,7 +1174,7 @@ The product switcher is a pop-up window available in the top navigation bar. It 
  is ignored. It has the following attributes:
     - **sameWindow** defines if the external URL is opened in the current tab or in a new one. The default value for this attribute
    is `false`.
-    - **URL** is the external URL that the link leads to.
+    - **url** is the external URL that the link leads to.
 
 ### label
 - **type**: string
@@ -1253,3 +1328,11 @@ The global search is an input field available in the top navigation bar. The sea
       - **visible**
         - **type**: boolean
         - **description**: specifies if the input text is visible or not.
+   - **onSearchBtnClick**
+     - **type**: Function
+     - **description**: will be executed when the user clicks the in-pill magnifier button while the input has a value. Only invoked when `style` is set to `'vega'`. If not defined, the framework falls back to invoking `onEnter`. When the input is empty, the magnifier collapses the search field instead.
+
+### style
+- **type**: string
+- **description**: selects the visual layout of the global search field. When set to `'vega'`, the magnifier icon is rendered inside the search input pill (along with a clear-input button), matching the Fundamental Styles shellbar reference. The outside toggle button is hidden while the field is expanded so the pill visually wraps around it. Any other value (or omitting the property) keeps the original two-button layout where the magnifier sits outside the input as a separate toggle. When `'vega'` is active, you can implement `searchProvider.onSearchBtnClick` to handle clicks on the in-pill magnifier; if not provided, it falls back to `searchProvider.onEnter`.
+- **since**: 2.32.0

@@ -1,5 +1,5 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { Component, OnInit, OnDestroy, signal, ChangeDetectionStrategy } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { linkManager } from '@luigi-project/client';
 import { Subscription } from 'rxjs';
 
@@ -10,26 +10,37 @@ import { Subscription } from 'rxjs';
 @Component({
   selector: 'app-nav-sync',
   templateUrl: './nav-sync.component.html',
-  styleUrls: ['./nav-sync.component.css']
+  styleUrls: ['./nav-sync.component.css'],
+  changeDetection: ChangeDetectionStrategy.Eager,
+  standalone: false
 })
 export class NavSyncComponent implements OnInit, OnDestroy {
   segments: String[] = ['one', 'two', 'three', 'four'];
-  currentSegment: String;
+  currentSegment = signal<string>('');
   nextSegment: String;
   subs: Subscription = new Subscription();
   linkManager = linkManager;
 
-  constructor(private route: ActivatedRoute) {}
+  constructor(
+    private route: ActivatedRoute,
+    private router: Router
+  ) {}
 
   ngOnInit() {
     this.subs.add(
       this.route.url.subscribe(
-        segments => {
-          this.currentSegment = segments[segments.length - 1].path;
-          const nextIndex = this.segments.indexOf(this.currentSegment) + 1;
+        (segments) => {
+          let segment;
+          if (segments.length === 1 && this.router.routerState?.snapshot) {
+            segment = this.router.routerState.snapshot.url;
+          } else {
+            segment = segments[segments.length - 1].path;
+          }
+          this.currentSegment.set(segment);
+          const nextIndex = this.segments.indexOf(this.currentSegment()) + 1;
           this.nextSegment = this.segments[nextIndex] ? this.segments[nextIndex] : this.segments[0];
         },
-        err => {}
+        (err) => {}
       )
     );
     this.updateLuigiConfig(true);

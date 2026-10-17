@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { parse } = require('@typescript-eslint/typescript-estree');
+const { parse, AST_TOKEN_TYPES } = require('@typescript-eslint/typescript-estree');
 
 const luigiContainerPath = 'src/LuigiContainer.svelte';
 const luigiCompoundContainerPath = 'src/LuigiCompoundContainer.svelte';
@@ -11,9 +11,10 @@ const luigiEventsPath = 'typings/constants/events.d.ts';
 /**
  * Parses a `props` object from the provided file content string.
  * @param {string} fileContent - The content of the file as a string, which should contain a `props` object.
+ * @param {Object} descData - The object with description value for each property.
  * @returns {Object} The parsed `props` object.
  */
-function parseContainerProps(fileContent) {
+function parseContainerProps(fileContent, descData) {
   if (!fileContent || fileContent === '') {
     throw new Error('Cannot parse container props, fileContent is empty in parseContainerProps.');
   }
@@ -42,7 +43,22 @@ function parseContainerProps(fileContent) {
   const propsObjectString = fileContent.slice(propsStart, propsEnd + 1);
   const propsObject = eval(`(${propsObjectString})`);
 
+  if (descData) {
+    propsObject.descData = descData;
+  }
+
   return propsObject;
+}
+
+function findAttachedJSDocComment(declaration, previousDeclaration, comments) {
+  const candidates = comments.filter((comment) => {
+    return (
+      comment.loc.end.line < declaration.loc.start.line &&
+      (!previousDeclaration || comment.loc.start.line > previousDeclaration.loc.end.line)
+    );
+  });
+
+  return candidates?.length > 0 ? candidates[candidates.length - 1] : undefined;
 }
 
 /**
@@ -62,28 +78,26 @@ function parseContainerEvents(fileContent) {
     loc: true,
     range: true,
     tokens: true,
-    comment: true,
-    errorOnUnknownASTType: true
+    comment: true
   };
 
   const ast = parse(fileContent, options);
 
   const events = [];
+  const jsdocComments = ast.comments.filter((comment) => {
+    return comment.type === AST_TOKEN_TYPES.Block && comment.value.startsWith('*');
+  });
 
   ast.body.forEach((stmt) => {
-    if (stmt.type === 'ExportNamedDeclaration') {
-      stmt.declaration.body.body.forEach((eventName, index) => {
-        if (eventName.type === 'ExportNamedDeclaration') {
-          const { declaration } = eventName;
-
-          if (
-            declaration.type === 'VariableDeclaration' &&
-            declaration.declarations[0].init &&
-            declaration.declarations[0].init.type === 'Literal'
-          ) {
-            const name = declaration.declarations[0].init.value;
-            const jsdocComment = ast.comments[index].value.trim();
-            let cleanedComment = jsdocComment
+    if (stmt.type === 'ExportNamedDeclaration' && stmt.declaration?.declarations?.length) {
+      let previousDeclaration;
+      stmt.declaration.declarations.forEach((declaration) => {
+        if (declaration.type === 'VariableDeclarator' && declaration.init.type === 'Literal') {
+          const name = declaration.init.value;
+          const jsdocComment = findAttachedJSDocComment(declaration, previousDeclaration, jsdocComments);
+          if (jsdocComment?.value) {
+            let cleanedComment = jsdocComment.value
+              .trim()
               .split('\n')
               .map((line) => {
                 if (line.trim().startsWith('*')) {
@@ -92,14 +106,25 @@ function parseContainerEvents(fileContent) {
                 return line.trim();
               })
               .join(' ')
+              .replace('=> -', '-')
+              .replace('unspecified -', '-')
+              .replace('@param', '@type')
+              .replace('@returns {void}', '')
+              .replaceAll('<br>', '')
               .trim();
 
-            events.push({
-              name,
-              description: cleanedComment || 'No description'
-            });
+            if (cleanedComment && cleanedComment.indexOf('@deprecated') > 0) {
+              console.log('IGNORING', name, ': marked as deprecated');
+            } else {
+              events.push({
+                name,
+                description: cleanedComment || 'No description'
+              });
+            }
           }
         }
+
+        previousDeclaration = declaration;
       });
     }
   });
@@ -203,9 +228,13 @@ function generateMembers(props, methods) {
       kind: 'field',
       name: key,
       type: generateMemberType(key, props[key]),
+      description: props.descData[key] || 'No description',
       default: 'undefined'
     };
-    members.push(member);
+
+    if (key !== 'descData') {
+      members.push(member);
+    }
   }
   methods.forEach((methodName) => {
     members.push({
@@ -231,12 +260,7 @@ function generateMemberType(key, value) {
   }
   if (value.type === 'Array') {
     return {
-      text: 'Array<string>',
-      references: [
-        {
-          name: 'string'
-        }
-      ]
+      text: 'Array<string>'
     };
   } else if (value.type === 'String' || value.type === 'Object' || value.type === 'Boolean') {
     if (key === 'context' || key === 'webcomponent') {
@@ -316,6 +340,40 @@ function parseContainerMethods(fileContent) {
 }
 
 /**
+ * Parses a JavaScript file content and extracts method descriptions from it.
+ *
+ * @param {string} fileContent - The content of the JavaScript file as a string, which should define one or more classes or objects.
+ * @returns {Object} An object with description value for each property.
+ *
+ * This function utilizes a parsed Abstract Syntax Tree (AST) from the file content to identify method definitions.
+ * It iterates through the AST and collects description value for each method defined in class bodies.
+ */
+function parseContainerDescription(fileContent) {
+  if (!fileContent || fileContent === '') {
+    throw new Error('No fileContent in parseContainerDescription');
+  }
+
+  const ast = parse(fileContent, {
+    comment: true,
+    jsDocParsingMode: 'all'
+  });
+  const obj = {};
+
+  ast.body.forEach((stmt) => {
+    stmt.declaration.body.body.forEach((property, index) => {
+      if (property.type === 'PropertyDefinition') {
+        const val = ast.comments[index + 1].value;
+        const desc = val.replaceAll('*\n', '').replaceAll('   * ', '').replaceAll('@description ', '');
+
+        obj[property.key.name] = desc.split('<br><br>')[0];
+      }
+    });
+  });
+
+  return obj;
+}
+
+/**
  * Writes the custom element manifest to a file.
  * @param {Object} cem custom element manifest file in json format
  */
@@ -343,13 +401,15 @@ function main() {
     const eventsFileContent = getFileContent(luigiEventsPath);
 
     const events = parseContainerEvents(eventsFileContent);
+    const containerDesc = parseContainerDescription(luigiContainerTypingsContent);
+    const compoundContainerDesc = parseContainerDescription(luigiCompoundContainerTypingsContent);
     const containersMetaData = [
       {
         containerName: 'LuigiContainer',
         module: 'LuigiContainer.js',
         tagName: 'luigi-container',
         modulePath: 'dist/bundle.js',
-        containerMembers: parseContainerProps(luigiContainerFileContent),
+        containerMembers: parseContainerProps(luigiContainerFileContent, containerDesc),
         containerEvents: events,
         containerFields: parseContainerMethods(luigiContainerTypingsContent)
       },
@@ -358,7 +418,7 @@ function main() {
         module: 'LuigiCompoundContainer.js',
         tagName: 'luigi-compound-container',
         modulePath: 'dist/bundle.js',
-        containerMembers: parseContainerProps(luigiCompoundContainerFileContent),
+        containerMembers: parseContainerProps(luigiCompoundContainerFileContent, compoundContainerDesc),
         containerEvents: events,
         containerFields: parseContainerMethods(luigiCompoundContainerTypingsContent)
       }

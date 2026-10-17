@@ -5,7 +5,7 @@ const chai = require('chai');
 const assert = chai.assert;
 const sinon = require('sinon');
 
-describe('Luigi routing', function() {
+describe('Luigi routing', function () {
   let locationSpy;
 
   beforeEach(() => {
@@ -21,6 +21,9 @@ describe('Luigi routing', function() {
   });
 
   describe('SearchParams path routing', () => {
+    afterEach(() => {
+      sinon.restore();
+    });
     it('get searchparams', () => {
       locationSpy.mockImplementation(() => {
         return new URL('http://some.url.de?test=tets&luigi=rocks');
@@ -46,6 +49,16 @@ describe('Luigi routing', function() {
       });
       LuigiRouting.addSearchParams({ foo: 'bar' }, true);
       sinon.assert.calledWithExactly(window.history.pushState, window.state, '', 'http://some.url.de/?foo=bar');
+    });
+    it('set searchparams preventConfigChanged function called', () => {
+      window.state = {};
+      LuigiConfig.configChanged = sinon.spy();
+      locationSpy.mockImplementation(() => {
+        return new URL('http://some.url.de');
+      });
+      LuigiRouting.addSearchParams({ foo: 'bar' }, true, true);
+      sinon.assert.calledWithExactly(window.history.pushState, window.state, '', 'http://some.url.de/?foo=bar');
+      sinon.assert.neverCalledWith(LuigiConfig.configChanged);
     });
     it('set searchparams without keeping browser history', () => {
       window.state = {};
@@ -95,10 +108,7 @@ describe('Luigi routing', function() {
   });
   describe('SearchParams hash routing', () => {
     beforeEach(() => {
-      sinon
-        .stub(LuigiConfig, 'getConfigValue')
-        .withArgs('routing.useHashRouting')
-        .returns(true);
+      sinon.stub(LuigiConfig, 'getConfigValue').withArgs('routing.useHashRouting').returns(true);
     });
     afterEach(() => {
       sinon.restore();
@@ -120,6 +130,12 @@ describe('Luigi routing', function() {
         return new URL('http://some.url.de/#/');
       });
       assert.deepEqual(LuigiRouting.getSearchParams(), {});
+    });
+    it('get searchparams avoiding prototype pollution', () => {
+      locationSpy.mockImplementation(() => {
+        return new URL('http://some.url.de/#/?test=tets&luigi=rocks&__proto__=polluted');
+      });
+      assert.deepEqual(LuigiRouting.getSearchParams(), { test: 'tets', luigi: 'rocks' });
     });
     it('add searchparams hash routing', () => {
       window.state = {};
@@ -191,10 +207,7 @@ describe('Luigi routing', function() {
 
   describe('modifySearchParams', () => {
     beforeEach(() => {
-      sinon
-        .stub(LuigiConfig, 'getConfigValue')
-        .withArgs('routing.useHashRouting')
-        .returns(false);
+      sinon.stub(LuigiConfig, 'getConfigValue').withArgs('routing.useHashRouting').returns(false);
     });
     afterEach(() => {
       sinon.restore();
@@ -309,10 +322,7 @@ describe('Luigi routing', function() {
 
   describe('Anchor with hash routing', () => {
     beforeEach(() => {
-      sinon
-        .stub(LuigiConfig, 'getConfigValue')
-        .withArgs('routing.useHashRouting')
-        .returns(true);
+      sinon.stub(LuigiConfig, 'getConfigValue').withArgs('routing.useHashRouting').returns(true);
     });
     afterEach(() => {
       sinon.restore();

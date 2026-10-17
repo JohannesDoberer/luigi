@@ -2,23 +2,41 @@ import type { IframeHandle, ContainerElement } from '../constants/container.mode
 import { LuigiInternalMessageID } from '../constants/internal-communication';
 import { containerService } from '../services/container.service';
 
+type InternalPayload = {
+  withoutSync?: boolean;
+  [key: string]: unknown;
+};
+
 export class ContainerAPIFunctions {
   /**
    * Updates the context of the microfrontend by sending a message to the iframe that sets the context of the microfrontend
    * @param contextObj The context data
    * @param internal internal luigi legacy data
    * @param iframeHandle a reference to the iframe that is needed to send a message to it internally
+   * @param nodeParams node parameters to be sent to the microfrontend
+   * @param pathParams path parameters to be sent to the microfrontend
+   * @param searchParams search parameters to be sent to the microfrontend
    */
-  updateContext = (contextObj: object, internal?: object, iframeHandle?: IframeHandle) => {
+  updateContext = (
+    contextObj: object,
+    internal?: InternalPayload,
+    iframeHandle?: IframeHandle,
+    nodeParams?: object,
+    pathParams?: object,
+    searchParams?: object
+  ) => {
     if (iframeHandle) {
-      const internalParameter = internal || {};
+      const internalParameter: InternalPayload = internal || {};
       containerService.sendCustomMessageToIframe(
         iframeHandle,
         {
           context: contextObj,
+          nodeParams: nodeParams || {},
+          pathParams: pathParams || {},
+          searchParams: searchParams || {},
           internal: internalParameter,
           // set withoutSync to true for the container case to avoid browser history changes from luigi client
-          withoutSync: true
+          withoutSync: internalParameter.withoutSync ?? true
         },
         LuigiInternalMessageID.SEND_CONTEXT_OBJECT
       );

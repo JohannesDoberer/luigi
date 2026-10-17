@@ -1,10 +1,23 @@
 describe('Web Container Test', () => {
   describe('LuigiClient API LuigiContainer', () => {
     const containerSelector = '[data-test-id="luigi-client-api-test-01"]';
+    let consoleLog;
     let stub;
 
     beforeEach(() => {
-      cy.visit('http://localhost:8080/wc/clientAPI.html');
+      cy.visit('http://localhost:8080/wc/clientAPI.html', {
+        onBeforeLoad(win) {
+          // Clear logs in window console
+          if (Object.prototype.toString.call(win.console.clear) === '[object Function]') {
+            win.console.clear();
+          }
+
+          // Set up a spy on console.log
+          cy.stub(win.console, 'log', (value) => {
+            consoleLog = value;
+          });
+        }
+      });
       stub = cy.stub();
     });
 
@@ -22,6 +35,30 @@ describe('Web Container Test', () => {
         });
     });
 
+    it('setDirtyStatus', () => {
+      cy.on('window:alert', stub);
+
+      cy.get(containerSelector)
+        .shadow()
+        .contains('setDirtyStatus')
+        .click()
+        .then(() => {
+          expect(stub.getCall(0)).to.be.calledWith('LuigiClient.uxManager().setDirtyStatus()=true');
+        });
+    });
+
+    it('setCurrentLocale', () => {
+      cy.on('window:alert', stub);
+
+      cy.get(containerSelector)
+        .shadow()
+        .contains('setCurrentLocale')
+        .click()
+        .then(() => {
+          expect(stub.getCall(0)).to.be.calledWith('LuigiClient.uxManager().setCurrentLocale()=de');
+        });
+    });
+
     it('getCoreSearchParams', () => {
       cy.on('window:alert', stub);
 
@@ -31,6 +68,25 @@ describe('Web Container Test', () => {
         .click()
         .then(() => {
           expect(stub.getCall(0)).to.be.calledWith('{"test":"searchParam1"}');
+        });
+    });
+
+    it('Add core search params', () => {
+      cy.on('window:alert', stub);
+
+      const expectedPayload = {
+        data: { luigi: 'rocks' },
+        keepBrowserHistory: true,
+        preventLuigiConfigUpdate: false
+      };
+      cy.get(containerSelector)
+        .shadow()
+        .get('#addCoreSearchParams')
+        .click()
+        .then(() => {
+          if (consoleLog) {
+            expect(consoleLog).to.equal(JSON.stringify(expectedPayload));
+          }
         });
     });
 
@@ -164,8 +220,31 @@ describe('Web Container Test', () => {
         .click()
         .then(() => {
           cy.hash().should('eq', '#openAsModal-wc');
+          expect(stub.getCall(0)).to.be.calledWith('LuigiClient.linkManager().openAsModal() - resolved');
         });
     });
+
+    it('Update modal settings in wc mf', () => {
+      cy.on('window:alert', stub);
+
+      const expectedPayload = {
+        updatedModalSettings: {
+          title: 'Updated Modal Title',
+          size: 'l'
+        },
+        addHistoryEntry: false
+      };
+      cy.get(containerSelector)
+        .shadow()
+        .get('#updateModalSettingsBtn')
+        .click()
+        .then(() => {
+          if (consoleLog) {
+            expect(consoleLog).to.equal(JSON.stringify(expectedPayload));
+          }
+        });
+    });
+
     it('openAsDrawer webcomponent container', () => {
       cy.on('window:alert', stub);
 
@@ -206,6 +285,20 @@ describe('Web Container Test', () => {
           alertMessages.forEach((msg, index) => {
             expect(stub.getCall(index)).to.be.calledWith(msg);
           });
+        });
+    });
+
+    it('updateModalPathInternalNavigation', () => {
+      cy.on('window:alert', stub);
+
+      cy.get(containerSelector)
+        .shadow()
+        .get('#updateModalPathBtn')
+        .click()
+        .then(() => {
+          expect(stub.getCall(0)).to.be.calledWith(
+            'LuigiClient.linkManager().updateModalPathInternalNavigation("/test/route")'
+          );
         });
     });
 
@@ -323,7 +416,7 @@ describe('Web Container Test', () => {
         'LuigiClient.uxManager().closeUserSettings()',
         'LuigiClient.uxManager().removeBackdrop()',
         'LuigiClient.uxManager().collapseLeftSideNav()',
-        'LuigiClient.uxManager().hideAppLoadingIndicator()',
+        'LuigiClient.uxManager() -> Hide Loading Indicator Request',
         'LuigiClient.uxManager().getDocumentTitle()=my-title'
       ];
 
@@ -337,6 +430,42 @@ describe('Web Container Test', () => {
           alertMessages.forEach((msg, index) => {
             expect(stub.getCall(index)).to.be.calledWith(msg);
           });
+        });
+    });
+
+    it('LuigiClient API uxManager showLoadingIndicator', () => {
+      cy.on('window:alert', stub);
+
+      cy.get(containerSelector)
+        .shadow()
+        .contains('uxManager.showLoadingIndicator()')
+        .click()
+        .then(() => {
+          expect(stub.getCall(0)).to.be.calledWith('LuigiClient.uxManager() -> Show Loading Indicator Request');
+        });
+    });
+
+    it('LuigiClient API uxManager hideLoadingIndicator', () => {
+      cy.on('window:alert', stub);
+
+      cy.get(containerSelector)
+        .shadow()
+        .contains('uxManager.hideLoadingIndicator()')
+        .click()
+        .then(() => {
+          expect(stub.getCall(0)).to.be.calledWith('LuigiClient.uxManager() -> Hide Loading Indicator Request');
+        });
+    });
+
+    it('closeCurrentModal', () => {
+      cy.on('window:alert', stub);
+
+      cy.get(containerSelector)
+        .shadow()
+        .get('#closeCurrentModalBtn')
+        .click()
+        .then(() => {
+          expect(stub.getCall(0)).to.be.calledWith('LuigiClient.uxManager().closeCurrentModal()');
         });
     });
   });

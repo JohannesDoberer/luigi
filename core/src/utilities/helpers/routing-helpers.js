@@ -47,7 +47,7 @@ class RoutingHelpersClass {
 
   parseParams(paramsString) {
     if (!paramsString) return {};
-    const result = {};
+    const result = Object.create(null);
     const viewParamString = paramsString.replace(/\+/g, ' ');
     const pairs = viewParamString ? viewParamString.split('&') : null;
     if (pairs) {
@@ -70,7 +70,7 @@ class RoutingHelpersClass {
   }
 
   getNodeParams(params) {
-    const result = {};
+    const result = Object.create(null);
     const paramPrefix = this.getContentViewParamPrefix();
     if (params) {
       Object.entries(params).forEach((entry) => {
@@ -195,8 +195,8 @@ class RoutingHelpersClass {
 
   /**
     * Get context from node
-    @param {Object} node node information
-    @param {Object} ctx context object
+    @param {Object} node - node information
+    @param {Object} ctx - context object
     @returns {Object} context object. e.g. { someValue: 'foo' }
   */
   getContext(node, ctx) {
@@ -224,7 +224,7 @@ class RoutingHelpersClass {
     }
 
     const route = RoutingHelpers.buildRoute(node, `/${node.pathSegment}`);
-    return pp + GenericHelpers.replaceVars(route, pathParams, ':', false);
+    return pp + GenericHelpers.replaceVars(route, pathParams, ':', false, true);
   }
 
   calculateNodeHref(node, pathParams) {
@@ -276,9 +276,8 @@ class RoutingHelpersClass {
    * Maps a path to the nodes route, replacing all dynamic pathSegments with the concrete values in path.
    * Example: path='/object/234/subobject/378/some/node', node with path '/object/:id/subobject/:subid' results in
    * '/object/234/subobject/378/'.
-   * @param {*} path a concrete node path, typically the current app route.
-   * @param {*} node a node which must be an ancestor of the resolved node from path.
-   *
+   * @param {*} path - a concrete node path, typically the current app route
+   * @param {*} node - a node which must be an ancestor of the resolved node from path
    * @returns a string with the route or undefined, if node is not an ancestor of path-node
    */
   mapPathToNode(path, node) {
@@ -336,6 +335,9 @@ class RoutingHelpersClass {
     const nodeParamsVarPrefix = 'nodeParams.';
     const searchQuery = 'routing.queryParams';
 
+    if (componentData?.currentNode?.virtualTree) {
+      viewUrl = viewUrl.replace('{virtualTreePath}', '');
+    }
     viewUrl = GenericHelpers.replaceVars(viewUrl, componentData.pathParams, ':', false);
     viewUrl = GenericHelpers.replaceVars(viewUrl, componentData.context, contextVarPrefix);
     viewUrl = GenericHelpers.replaceVars(viewUrl, componentData.nodeParams, nodeParamsVarPrefix);
@@ -393,8 +395,7 @@ class RoutingHelpersClass {
    *    params: {param1: "value1",param2: "value2"}
    *  };
    * ```
-   * @param {string} link  the intent link represents the semantic intent defined by the user
-   *                        i.e.: #?intent=semanticObject-action?param=value
+   * @param {string} link - the intent link represents the semantic intent defined by the user, i.e.: #?intent=semanticObject-action?param=value
    */
   getIntentObject(intentLink) {
     const intentParams = intentLink.split('?intent=')[1];
@@ -447,8 +448,7 @@ class RoutingHelpersClass {
    *             external: true
    *          }
    * ```
-   * @param {string} intentLink  the intentLink represents the semantic intent defined by the user
-   *                        i.e.: #?intent=semanticObject-action?param=value
+   * @param {string} intentLink - the intentLink represents the semantic intent defined by the user, i.e.: #?intent=semanticObject-action?param=value
    */
   getIntentPath(intentLink) {
     const mappings = LuigiConfig.getConfigValue('navigation.intentMapping');
@@ -504,8 +504,8 @@ class RoutingHelpersClass {
    * For both 1. and 2., the following dynamic input path: `/projects/:project/details/:user`
    * is resolved through this method to `/projects/pr2/details/john`
    *
-   * @param {string} path the path containing the potential dynamic parameter
-   * @param {Object} parameters a list of objects consisting of passed parameters
+   * @param {string} path - the path containing the potential dynamic parameter
+   * @param {Object} parameters - a list of objects consisting of passed parameters
    */
   resolveDynamicIntentPath(path, parameters) {
     if (!parameters) {
@@ -536,7 +536,7 @@ class RoutingHelpersClass {
     return filteredObj;
   }
 
-  addSearchParamsFromClient(currentNode, searchParams, keepBrowserHistory) {
+  addSearchParamsFromClient(currentNode, searchParams, keepBrowserHistory, preventLuigiConfigUpdate = false) {
     const localSearchParams = { ...searchParams };
     if (!GenericHelpers.isObject(localSearchParams)) {
       return;
@@ -554,14 +554,14 @@ class RoutingHelpersClass {
         console.warn(`No permission to add the search param "${key}" to the url`);
       }
       if (Object.keys(filteredObj).length > 0) {
-        LuigiRouting.addSearchParams(filteredObj, keepBrowserHistory);
+        LuigiRouting.addSearchParams(filteredObj, keepBrowserHistory, preventLuigiConfigUpdate);
       }
     }
   }
 
   /**
    * Checks if given path contains intent navigation special syntax
-   * @param {string} path to check
+   * @param {string} path - path to be checked
    */
   hasIntent(path) {
     return !!path && path.toLowerCase().includes('#?intent=');
@@ -570,7 +570,7 @@ class RoutingHelpersClass {
   /**
    * Queries the pageNotFoundHandler configuration and returns redirect path if it exists
    * If the there is no `pageNotFoundHandler` defined we return undefined.
-   * @param {*} notFoundPath the path to check
+   * @param {*} notFoundPath - the path to check
    * @returns an object optionally containing the path to redirect, the keepURL option or an empty object if handler is undefined
    */
   getPageNotFoundRedirectResult(notFoundPath, isAnyPathMatched = false) {
@@ -593,9 +593,9 @@ class RoutingHelpersClass {
    * Handles pageNotFound situation depending if path exists or not.
    * If path exists simply return the given path, else fetch the pageNotFound redirect path and return it.
    * In case there was no pageNotFound handler defined it shows an alert and returns undefined.
-   * @param {any} component the component to show the alert on
-   * @param {string} path the path to check for
-   * @param {boolean} pathExists defines if path exists or not
+   * @param {any} component - the component to show the alert on
+   * @param {string} path - the path to check for
+   * @param {boolean} pathExists - defines if path exists or not
    * @returns the path to redirect to or undefined if path doesn't exist and no redirect path is defined
    */
   async handlePageNotFoundAndRetrieveRedirectPath(component, path, pathExists) {
@@ -615,9 +615,9 @@ class RoutingHelpersClass {
 
   /**
    * Shows an alert on the given component given the path
-   * @param {*} component the component used to call the alert function upon
-   * @param {string} path the path to show in the alert
-   * @param {boolean} isAnyPathMatched shows whether a valid path was found / which means path was only partially wrong. Otherwise it is false.
+   * @param {*} component - the component used to call the alert function upon
+   * @param {string} path - the path to show in the alert
+   * @param {boolean} isAnyPathMatched - shows whether a valid path was found / which means path was only partially wrong. Otherwise it is false.
    */
   showRouteNotFoundAlert(component, path, isAnyPathMatched = false) {
     const alertSettings = {
@@ -656,8 +656,8 @@ class RoutingHelpersClass {
 
   /**
    * Get an url without modal data. It's necessary on page refresh or loading Luigi with modal data in a new tab
-   * @param {String} searchParamsString url search parameter as string
-   * @param {String} modalParamName  modalPathParam value defined in Luigi routing settings
+   * @param {String} searchParamsString - url search parameter as string
+   * @param {String} modalParamName - modalPathParam value defined in Luigi routing settings
    * @returns {String} url search parameter as string without modal data
    */
   getURLWithoutModalData(searchParamsString, modalParamName) {
@@ -669,12 +669,12 @@ class RoutingHelpersClass {
 
   /**
    * Extending history state object for calculation how much history entries the browser have to go back when modal will be closed.
-   * @param {Object} historyState history.state object.
-   * @param {Number} historyState.modalHistoryLength will be increased when modals will be openend successively like e.g. stepping through a wizard.
-   * @param {Number} historyState.historygap is the history.length at the time when the modal will be opened. It's needed for calculating how much we have to go back in the browser history when the modal will be closed.
-   * @param {String} historyState.pathBeforeHistory path before modal will be opened. It's needed for calculating how much we have to go back in the browser history when the modal will be closed.
-   * @param {boolean} hashRoutingActive true if hash routing is active, false if path routing is active
-   * @param {URL} url url object to read hash value or pathname
+   * @param {Object} historyState - history.state object
+   * @param {Number} historyState.modalHistoryLength - will be increased when modals will be openend successively like e.g. stepping through a wizard
+   * @param {Number} historyState.historygap - is the history.length at the time when the modal will be opened. It's needed for calculating how much we have to go back in the browser history when the modal will be closed.
+   * @param {String} historyState.pathBeforeHistory - path before modal will be opened. It's needed for calculating how much we have to go back in the browser history when the modal will be closed.
+   * @param {boolean} hashRoutingActive - true if hash routing is active, false if path routing is active
+   * @param {URL} url - url object to read hash value or pathname
    * @returns {Object} history state object
    */
   handleHistoryState(historyState, path) {
@@ -692,9 +692,9 @@ class RoutingHelpersClass {
 
   /**
    * Deals with undefined inherited property
-   * @param {Object} node the data of node
-   * @param {string} property name of affected property
-   * @param {() => void} callback optional method to be called
+   * @param {Object} node - the data of node
+   * @param {string} property - name of affected property
+   * @param {() => void} callback - optional method to be called
    * @returns {(boolean|undefined)} true if the given props are present in node, falsy otherwise
    */
   handleInheritedProperty(node, property, callback) {

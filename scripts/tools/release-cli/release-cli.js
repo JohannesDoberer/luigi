@@ -11,7 +11,6 @@ import fs from 'fs';
 import path from 'path';
 import semver from 'semver';
 import prompts from 'prompts';
-import asyncRequest from 'async-request';
 import color from 'cli-color';
 
 /**
@@ -38,24 +37,9 @@ const pkgJsonPaths = {
   core: path.resolve(base, 'core', 'public', 'package.json'),
   core_public_root: path.resolve(base, 'core', 'public_root', 'package.json'),
   client: path.resolve(base, 'client', 'public', 'package.json'),
+  client_public_root: path.resolve(base, 'client', 'public_root', 'package.json'),
   authOAuth2: path.resolve(base, 'plugins', 'auth', 'public', 'auth-oauth2', 'package.json'),
   authOIDC: path.resolve(base, 'plugins', 'auth', 'public', 'auth-oidc', 'package.json'),
-  client_support_angular: path.resolve(
-    base,
-    'client-frameworks-support',
-    'client-support-angular',
-    'dist',
-    'client-support-angular',
-    'package.json'
-  ),
-  client_support_angular_src: path.resolve(
-    base,
-    'client-frameworks-support',
-    'client-support-angular',
-    'projects',
-    'client-support-angular',
-    'package.json'
-  ),
   testing_utilities: path.resolve(base, 'client-frameworks-support', 'testing-utilities', 'dist', 'package.json'),
   testing_utilities_src: path.resolve(base, 'client-frameworks-support', 'testing-utilities', 'package.json')
 };
@@ -63,27 +47,65 @@ const installPaths = {
   core: path.resolve(base, 'core'),
   client: path.resolve(base, 'client'),
   plugins: path.resolve(base, 'plugins'),
-  client_support_angular: path.resolve(base, 'client-frameworks-support', 'client-support-angular'),
   testing_utilities: path.resolve(base, 'client-frameworks-support', 'testing-utilities')
 };
 
 if (process.env.NIGHTLY === 'true' && !process.env.NIGHTLY_VERSION) {
   pkgJsonPaths.container = path.resolve(base, 'container', 'public', 'package.json');
   installPaths.container = path.resolve(base, 'container');
+
+  pkgJsonPaths.headless = path.resolve(base, 'core-modular', 'public', 'package.json');
+  installPaths.headless = path.resolve(base, 'core-modular');
+
+  pkgJsonPaths.client_support_angular = path.resolve(
+    base,
+    'client-frameworks-support',
+    'client-support-angular',
+    'dist',
+    'client-support-angular',
+    'package.json'
+  );
+  installPaths.client_support_angular = path.resolve(base, 'client-frameworks-support', 'client-support-angular');
 }
 
 /**
  * FNS
  */
 async function getReleases() {
-  const input = await asyncRequest('https://api.github.com/repos/SAP/luigi/releases', {
+  const response = await fetch('https://api.github.com/repos/luigi-project/luigi/releases', {
     headers: {
       'User-Agent': 'Luigi Release CLI'
     }
   });
-  return JSON.parse(input.body)
-    .map((r) => r.tag_name)
-    .filter((t, i) => i <= 8);
+  if (!response?.ok) {
+    throw new Error(`GitHub API request failed: ${response.status} ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data;
+}
+
+async function getPullRequests(params) {
+  const queryString = params ? new URLSearchParams(params).toString() : '';
+
+  try {
+    const response = await fetch(`https://api.github.com/repos/luigi-project/luigi/pulls?${queryString}`, {
+      headers: {
+        Authorization: `Bearer ${process.env.GITHUB_AUTH}`,
+        Accept: 'application/vnd.github.v3+json'
+      },
+      method: 'GET'
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP Error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    return data;
+  } catch (error) {
+    console.error('Fetch error:', error.message);
+  }
 }
 
 function getVersion(pkg) {
@@ -92,6 +114,26 @@ function getVersion(pkg) {
 
 function getNextVersion() {
   return semver.inc(getVersion('core'), 'patch');
+}
+
+/**
+ * Get the current Date and return it in a yyy-mm-dd format for the header of a release in the changelog
+ * @returns string with current date
+ */
+function getCurrentDate() {
+  const currentDate = new Date();
+  const year = currentDate.getFullYear();
+  let month = (currentDate.getMonth() + 1).toString();
+  let day = currentDate.getDate().toString();
+
+  if (month.length < 2) {
+    month = '0' + month;
+  }
+  if (day.length < 2) {
+    day = '0' + day;
+  }
+
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -128,19 +170,77 @@ function writeVersion(packagePath, version) {
  */
 function addToChangelog(versionText, changelog, lastline) {
   const changelogFile = path.resolve(base, 'CHANGELOG.md');
+  const searchText = '<!--Generate the changelog using release cli. -->';
   let md = fs.readFileSync(changelogFile).toString();
   if (md.indexOf(versionText) !== -1) {
     logWarning('WARNING: Version already exist in the changelog, not appending.');
     return;
   }
   // remove committers from changelog
-
+  changelog = changelog.slice(0, changelog.indexOf('#### Committers'));
   // add changelog text
-  md = md.replace('-->', `-->\n\n${changelog}\n\n`);
+  md = md.replace(searchText, `${searchText}\n\n${changelog}`);
   // add github compare link
   md = md += `\n${lastline}`;
   fs.writeFileSync(changelogFile, md);
   logHeadline('Appended changelog');
+}
+
+/**
+ * Formats a list of pull requests into a Markdown-compatible string.
+ * Each pull request is converted into a string containing the PR number,
+ * title, and user information, all formatted as a Markdown list item.
+ *
+ * @param {Array} pullRequests - An array of pull request objects.
+ * @returns {string} A formatted string with each pull request as a Markdown list item.
+ */
+function formatPullRequests(pullRequests) {
+  return pullRequests
+    .map((pr) => `* [#${pr.number}](${pr.html_url}) ${pr.title} ([@${pr.user.login}](${pr.user.html_url}))`)
+    .join('\n');
+}
+
+/**
+ * Categorizes a list of pull requests based on their labels and whether they have been merged since the last release.
+ *
+ * @param {Array<Object>} pullRequests - An array of pull request objects to be categorized based on the label.
+ * @param {Object} lastRelease - An object representing the last release.
+ *
+ * @returns {Object} An object containing four arrays that categorize the pull requests:
+ *   - `breakingPulls`: An array of pull requests labeled as "breaking" changes.
+ *   - `enhancementPulls`: An array of pull requests labeled as "enhancement".
+ *   - `bugPulls`: An array of pull requests labeled as "bug".
+ *   - `internalPulls`: An array of pull requests labeled as "internal".
+ *   - `noLabelPulls`: An array of pull requests without any of the specific labels listed above.
+ */
+function categorizePullRequests(pullRequests, lastRelease) {
+  const categorizedPulls = {
+    breakingPulls: [],
+    bugPulls: [],
+    enhancementPulls: [],
+    internalPulls: [],
+    noLabelPulls: []
+  };
+
+  pullRequests.forEach((pr) => {
+    const labels = pr.labels.map((label) => label.name);
+
+    if (pr.merged_at > lastRelease.published_at) {
+      if (labels.includes('breaking')) {
+        categorizedPulls.breakingPulls.push(pr);
+      } else if (labels.includes('bug')) {
+        categorizedPulls.bugPulls.push(pr);
+      } else if (labels.includes('enhancement')) {
+        categorizedPulls.enhancementPulls.push(pr);
+      } else if (labels.includes('internal')) {
+        categorizedPulls.internalPulls.push(pr);
+      } else {
+        categorizedPulls.noLabelPulls.push(pr);
+      }
+    }
+  });
+
+  return categorizedPulls;
 }
 
 /**
@@ -150,7 +250,9 @@ function addToChangelog(versionText, changelog, lastline) {
 (async () => {
   logHeadline('Preparing new release.');
 
-  const releases = await getReleases();
+  const allReleases = await getReleases();
+  const lastRelease = allReleases[0];
+  const releases = allReleases.map((r) => r.tag_name).filter((_, i) => i <= 8);
   const nextVersion = getNextVersion();
 
   // NIGHTLY BUILD
@@ -194,13 +296,16 @@ function addToChangelog(versionText, changelog, lastline) {
   for (const name of Object.keys(pkgJsonPaths)) {
     let inputVersion = input.version;
 
-    // handle custom container version for nightly release
-    if (name === 'container' && process.env.NIGHTLY === 'true') {
-      const containerNightlyVersion = getVersion('container');
+    // handle custom pkg version for nightly release
+    if (
+      process.env.NIGHTLY === 'true' &&
+      (name === 'container' || name === 'client_support_angular' || name === 'headless')
+    ) {
+      const pkgNightlyVersion = getVersion(name);
       const versionSuffix = getVersionSuffix();
 
-      inputVersion = containerNightlyVersion + versionSuffix;
-      logHeadline('\nContainer updated to v' + inputVersion + ':');
+      inputVersion = pkgNightlyVersion + versionSuffix;
+      logHeadline('\n' + name + ' updated to v' + inputVersion + ':');
     }
 
     writeVersion(pkgJsonPaths[name], inputVersion);
@@ -214,15 +319,23 @@ function addToChangelog(versionText, changelog, lastline) {
   if (input.changelog) {
     const prevVersion = releases[input.prevVersion];
     const versionText = '## [v' + input.version + ']';
-    let changelog = require('child_process')
-      .execSync(base + '/node_modules/lerna-changelog/bin/cli.js --ignoreCommiters --from ' + prevVersion)
-      .toString()
-      .replace('## Unreleased', versionText);
+    const pullRequests = await getPullRequests({ state: 'closed' });
+    const { breakingPulls, enhancementPulls, bugPulls, internalPulls } = categorizePullRequests(
+      pullRequests,
+      lastRelease
+    );
+    const breakingChanges = formatPullRequests(breakingPulls);
+    const enhancementChanges = formatPullRequests(enhancementPulls);
+    const bugChanges = formatPullRequests(bugPulls);
+    const internalChanges = formatPullRequests(internalPulls);
+    const lastline = `[v${input.version}]: https://github.com/luigi-project/luigi/compare/${prevVersion}...v${input.version}`;
+    let changelog = `\n\n## [v${input.version}] (${getCurrentDate()})\n\n${
+      breakingChanges ? `#### ":boom: Breaking Change"\n${breakingChanges}\n\n` : ''
+    }${enhancementChanges ? `#### :rocket: Added\n\n${enhancementChanges}\n\n` : ''}${
+      bugChanges ? `#### :bug: Fixed\n\n${bugChanges}\n\n` : ''
+    }${internalChanges ? `#### :house: Internal\n\n${internalChanges}\n\n` : ''}`;
 
-    // strip committers part
-    changelog = changelog.slice(0, changelog.indexOf('#### Committers'));
-
-    const lastline = `[v${input.version}]: https://github.com/SAP/luigi/compare/${prevVersion}...v${input.version}`;
+    changelog = changelog.replace('## Unreleased', versionText);
 
     logHeadline('\nPrepared Changelog:');
     console.log(changelog);

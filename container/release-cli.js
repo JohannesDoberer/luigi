@@ -1,17 +1,74 @@
-const GitHub = require('github-api');
 const fs = require('fs');
 const readline = require('readline');
 const packageJson = require('./public/package.json');
 const color = require('cli-color');
 
-const github = new GitHub({
-  token: process.env.GITHUB_TOKEN
-});
-const repo = github.getRepo('SAP', 'luigi');
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
 
-const logWarning = str => console.log(color.yellow.bold(str));
-const logSuccess = str => console.log(color.green.bold(str));
-const logError = str => console.log(color.redBright.bold(str));
+const GITHUB_API_URL = 'https://api.github.com';
+const GITHUB_OWNER = 'luigi-project';
+const GITHUB_REPO = 'luigi';
+const GITHUB_TOKEN = process.env.GITHUB_AUTH;
+
+const listReleases = async () => {
+  try {
+    const url = `${GITHUB_API_URL}/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Accept: 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP Error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Fetch error:', error.message);
+  }
+};
+
+const listPullRequests = async (params) => {
+  const queryString = params ? new URLSearchParams(params).toString() : '';
+
+  try {
+    const response = await fetch(`${GITHUB_API_URL}/repos/${GITHUB_OWNER}/${GITHUB_REPO}/pulls?${queryString}`, {
+      headers: {
+        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Accept: 'application/vnd.github.v3+json'
+      },
+      method: 'GET'
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP Error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    return data;
+  } catch (error) {
+    console.error('Fetch error:', error.message);
+  }
+};
+
+const logWarning = (str) => console.log(color.yellow.bold(str));
+const logSuccess = (str) => console.log(color.green.bold(str));
+const logError = (str) => console.log(color.redBright.bold(str));
 
 /**
  * Fetch the container releases and return them in an array
@@ -19,17 +76,18 @@ const logError = str => console.log(color.redBright.bold(str));
  */
 async function getContainerReleases() {
   try {
-    const { data: releases } = await repo.listReleases();
-    const containerReleases = [];
-    releases.forEach(release => {
-      if (release.tag_name.startsWith('container/v')) {
-        containerReleases.push(release);
-      }
-    });
+    const releases = await listReleases();
+    if (!Array.isArray(releases)) {
+      console.error('Releases is not an array');
+      return [];
+    }
+
+    const containerReleases = releases.filter((release) => release.tag_name.startsWith('container/v'));
+
     return containerReleases;
   } catch (error) {
     console.error('Can not fetch container releases.', error.message);
-    return null;
+    return [];
   }
 }
 
@@ -73,7 +131,7 @@ function updateVersionInPgkJson(version) {
  */
 function formatPullRequests(pullRequests) {
   return pullRequests
-    .map(pr => `* [#${pr.number}](${pr.html_url}) ${pr.title} ([@${pr.user.login}](${pr.user.html_url}))`)
+    .map((pr) => `* [#${pr.number}](${pr.html_url}) ${pr.title} ([@${pr.user.login}](${pr.user.html_url}))`)
     .join('\n');
 }
 
@@ -97,8 +155,8 @@ function categorizePullRequests(pullRequests, lastContainerRelease) {
     noLabelPulls: []
   };
 
-  pullRequests.forEach(pr => {
-    const labels = pr.labels.map(label => label.name);
+  pullRequests.forEach((pr) => {
+    const labels = pr.labels.map((label) => label.name);
 
     if (labels.includes('container') && pr.merged_at > lastContainerRelease.published_at) {
       if (labels.includes('breaking')) {
@@ -129,8 +187,8 @@ async function prepareRelease() {
   const question = color.bold.cyan(
     `Version you want to release (current version ${lastContainerRelease.tag_name.replace('container/v', '')})? `
   );
-  rl.question(question, async version => {
-    if (packageJson.version >= version) {
+  rl.question(question, async (version) => {
+    if (compareVersions(packageJson.version, version) >= 0) {
       logWarning('Version already exists. Please check.');
       rl.close();
       return;
@@ -143,7 +201,7 @@ async function prepareRelease() {
     updateVersionInPgkJson(version);
 
     try {
-      const { data: pullRequests } = await repo.listPullRequests({ state: 'closed' });
+      const pullRequests = await listPullRequests({ state: 'closed' });
       const { breakingPulls, enhancementPulls, bugPulls, noLabelPulls } = categorizePullRequests(
         pullRequests,
         lastContainerRelease
@@ -156,11 +214,11 @@ async function prepareRelease() {
       const changelogPath = './CHANGELOG.md';
 
       //Add compare link to the end of the file
-      const lastline = `\n[v${version}]: https://github.com/SAP/luigi/compare/${lastContainerRelease.tag_name}...container/v${version}`;
+      const lastline = `\n[v${version}]: https://github.com/luigi-project/luigi/compare/${lastContainerRelease.tag_name}...container/v${version}`;
 
       //read file before append last line to file, otherwise it will not be written
       fs.readFileSync(changelogPath, 'utf8');
-      fs.appendFileSync(changelogPath, lastline, 'utf8', err => {
+      fs.appendFileSync(changelogPath, lastline, 'utf8', (err) => {
         console.log('Append lastline to Changelog', lastline);
         if (err) {
           logError('Cannot write compare link to the last line:', err);
@@ -185,7 +243,7 @@ async function prepareRelease() {
         //Find searchText and add after the searchText the new release to the changelog
         if (data.includes(searchText)) {
           const newData = data.replace(searchText, `${searchText}\n\n${newChangelog}`);
-          fs.writeFile(changelogPath, newData, 'utf8', err => {
+          fs.writeFile(changelogPath, newData, 'utf8', (err) => {
             if (err) {
               console.error('Cannot write data to file:', err);
               return;

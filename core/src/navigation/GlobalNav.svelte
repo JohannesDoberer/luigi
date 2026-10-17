@@ -33,6 +33,7 @@
       hideNavComponent = LuigiConfig.getConfigBooleanValue('settings.hideNavigation');
       responsiveNavSetting = LuigiConfig.getConfigValue('settings.responsiveNavigation');
       showGlobalNav =
+        LuigiConfig.getConfigValue('settings.sideNav.style') !== 'vega' &&
         !(
           LuigiConfig.getConfigValue('settings.btpToolLayout') &&
           GenericHelpers.requestExperimentalFeature('btpToolLayout', false)
@@ -105,7 +106,6 @@
                     on:click={(event) => {
                       NavigationHelpers.handleNavAnchorClickedWithoutMetaKey(event) && handleClick(node);
                     }}
-                    role="button"
                     tabindex="0"
                   >
                     <div class="lui-fd-nested-list__content">
@@ -143,7 +143,11 @@
                 >
                   <a href={addNavHrefForAnchor ? getRouteLink(node) : undefined} title={$getTranslation(node.label)}>
                     <!-- svelte-ignore a11y-click-events-have-key-events -->
-                    <div class="lui-fd-nested-list__content" on:click|preventDefault={() => handleClick(node)}>
+                    <div
+                      class="lui-fd-nested-list__content"
+                      role="presentation"
+                      on:click|preventDefault={() => handleClick(node)}
+                    >
                       {#if node.icon}
                         {#if hasOpenUIicon(node)}
                           <span class="lui-text fd-top-nav__icon {getSapIconStr(node.icon)}" />

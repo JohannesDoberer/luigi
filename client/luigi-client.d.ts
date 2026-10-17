@@ -78,7 +78,7 @@ export declare interface ClientPermissions {
 
 export declare interface AlertSettings {
   text?: string;
-  type: 'info' | 'success' | 'warning' | 'error';
+  type?: 'info' | 'success' | 'warning' | 'error';
   links?: {
     [key: string]: { text: string; url?: string; dismissKey?: string };
   };
@@ -198,7 +198,7 @@ export declare interface UxManager {
    *     // Logic to execute when the confirmation modal is dismissed
    *  });
    */
-  showConfirmationModal: (settings: ConfirmationModalSettings) => Promise<void>;
+  showConfirmationModal: <T = unknown>(settings: ConfirmationModalSettings) => Promise<T>;
 
   /**
    * Gets the current locale.
@@ -213,6 +213,29 @@ export declare interface UxManager {
    * @memberof uxManager
    */
   getCurrentTheme: () => any;
+
+  /**
+   * Returns whether F6 fast navigation is enabled in the Luigi Core configuration (`settings.F6Navigation`).
+   * When `true`, a micro frontend should forward its F6 / Shift+F6 keydown events to Luigi Core so that focus can move out of the iframe to the next / previous page group.
+   * @returns {boolean} whether F6 fast navigation is enabled
+   * @memberof uxManager
+   * @since 2.32.0
+   * @example LuigiClient.uxManager().isF6NavigationEnabled();
+   */
+  isF6NavigationEnabled: () => boolean;
+
+  /**
+   * Starts forwarding F6 / Shift+F6 keydown events from this micro frontend to Luigi Core, so that keyboard fast navigation can move focus out of the iframe to the next / previous page group.
+   * While focus is inside the iframe, the F6 keydown fires in the micro frontend's own document and never reaches Luigi Core; calling this method bridges those events. Forwarding only takes effect while core has fast navigation enabled (see {@link #isF6NavigationEnabled isF6NavigationEnabled()}), so it is safe to call unconditionally.
+   * @returns {function} a cleanup function that stops forwarding when called, e.g. on micro frontend teardown
+   * @memberof uxManager
+   * @since 2.32.0
+   * @example
+   * const stopF6Forwarding = LuigiClient.uxManager().enableF6NavigationForwarding();
+   * // later, e.g. on teardown:
+   * stopF6Forwarding();
+   */
+  enableF6NavigationForwarding: () => () => void;
 
   /**
    * Sets current locale to the specified one.
@@ -427,7 +450,7 @@ export declare interface LinkManager {
    *     console.log(res.data) //=> {foo: 'bar'}
    *  });
    */
-  openAsModal: (nodepath: string, modalSettings?: ModalSettings) => Promise<void>;
+  openAsModal: <T = unknown>(nodepath: string, modalSettings?: ModalSettings) => Promise<T>;
 
   /**
    * Updates the current title and size of a modal. If `routing.showModalPathInUrl` is set to `true`, the URL will be updated with the modal settings data.
@@ -799,13 +822,22 @@ export type getCoreSearchParams = () => CoreSearchParams;
  * Sends search query parameters to Luigi core. If it is allowed on node level it will be added to url.
  * @param {Object} searchParams
  * @param {boolean} keepBrowserHistory
+ * @param {boolean} preventLuigiConfigUpdate
  * @memberof Lifecycle
  * @example
  * LuigiClient.addCoreSearchParams({luigi:'rocks'});
  * LuigiClient.addCoreSearchParams({luigi:'rocks', false});
  */
-export function addCoreSearchParams(searchParams: CoreSearchParams, keepBrowserHistory: Boolean): void;
-export type addCoreSearchParams = (searchParams: CoreSearchParams, keepBrowserHistory: Boolean) => void;
+export function addCoreSearchParams(
+  searchParams: CoreSearchParams,
+  keepBrowserHistory: Boolean,
+  preventLuigiConfigUpdate: Boolean
+): void;
+export type addCoreSearchParams = (
+  searchParams: CoreSearchParams,
+  keepBrowserHistory: Boolean,
+  preventLuigiConfigUpdate: Boolean
+) => void;
 
 /**
  * Returns the current client permissions as specified in the navigation node or an empty object. For details, see [Node parameters](navigation-parameters-reference.md).

@@ -3,8 +3,10 @@ import { lifecycleManager } from './lifecycleManager';
 import { helpers } from './helpers';
 
 /**
- * Use the UX Manager to manage the appearance features in Luigi.
+ * @summary Use the UX Manager to manage the appearance features in Luigi.
+ * @augments LuigiClientBase
  * @name uxManager
+ * @class
  */
 class UxManager extends LuigiClientBase {
   /** @private */
@@ -60,7 +62,7 @@ class UxManager extends LuigiClientBase {
 
   /**
    * This method informs the main application that there are unsaved changes in the current view in the iframe. It can be used to prevent navigation away from the current view, for example with form fields which were edited but not submitted. However, this functionality is not restricted to forms. If you use `withoutSync()` together with `setDirtyStatus()`, this is a special case in which the dirty state logic needs to be handled by the micro frontend. For example, if the user navigates with an Angular router, which would trigger `withoutSync()`, Angular needs to take care about dirty state, prevent the navigation and ask for permission to navigate away, through `uxManager().showConfirmationModal(settings)`.
-   * @param {boolean} isDirty indicates if there are any unsaved changes on the current page or in the component
+   * @param {boolean} isDirty - indicates if there are any unsaved changes on the current page or in the component
    * @memberof uxManager
    */
   setDirtyStatus(isDirty) {
@@ -73,12 +75,12 @@ class UxManager extends LuigiClientBase {
   /**
    * Shows a confirmation modal.
    * @memberof uxManager
-   * @param {Object} settings the settings of the confirmation modal. If you don't provide any value for any of the fields, a default value is used
-   * @param {('confirmation'|'success'|'warning'|'error'|'information')} settings.type the content of the modal type. (Optional)
-   * @param {string} [settings.header="Confirmation"] the content of the modal header
-   * @param {string} [settings.body="Are you sure you want to do this?"] the content of the modal body. It supports HTML formatting elements such as `<br>`, `<b>`, `<strong>`, `<i>`, `<em>`, `<mark>`, `<small>`, `<del>`, `<ins>`, `<sub>`, `<sup>`.
-   * @param {string|false} [settings.buttonConfirm="Yes"] the label for the modal confirmation button. If set to `false`, the button will not be shown.
-   * @param {string} [settings.buttonDismiss="No"] the label for the modal dismiss button
+   * @param {Object} settings - the settings of the confirmation modal. If you don't provide any value for any of the fields, a default value is used
+   * @param {('confirmation'|'success'|'warning'|'error'|'information')} settings.type - the content of the modal type. (Optional)
+   * @param {string} [settings.header="Confirmation"] - the content of the modal header
+   * @param {string} [settings.body="Are you sure you want to do this?"] - the content of the modal body. It supports HTML formatting elements such as `<br>`, `<b>`, `<strong>`, `<i>`, `<em>`, `<mark>`, `<small>`, `<del>`, `<ins>`, `<sub>`, `<sup>`.
+   * @param {string|false} [settings.buttonConfirm="Yes"] - the label for the modal confirmation button. If set to `false`, the button will not be shown.
+   * @param {string} [settings.buttonDismiss="No"] - the label for the modal dismiss button
    * @returns {promise} which is resolved when accepting the confirmation modal and rejected when dismissing it
    * @example
    * import LuigiClient from '@luigi-project/client';
@@ -118,7 +120,7 @@ class UxManager extends LuigiClientBase {
   /**
    * @private
    * @memberof uxManager
-   * @param {Object} modal confirmed boolean value if ok or cancel has been pressed
+   * @param {Object} modal - confirmed boolean value if ok or cancel has been pressed
    */
   hideConfirmationModal(modal) {
     const promise = this.getPromise('confirmationModal');
@@ -131,15 +133,15 @@ class UxManager extends LuigiClientBase {
   /**
    * Shows an alert.
    * @memberof uxManager
-   * @param {Object} settings the settings for the alert
-   * @param {string} settings.text the content of the alert. To add a link to the content, you have to set up the link in the `links` object. The key(s) in the `links` object must be used in the text to reference the links, wrapped in curly brackets with no spaces. If you don't specify any text, the alert is not displayed
-   * @param {('info'|'success'|'warning'|'error')} settings.type sets the type of alert
-   * @param {Object} settings.links provides links data
-   * @param {Object} settings.links.LINK_KEY object containing the data for a particular link. To properly render the link in the alert message refer to the description of the **settings.text** parameter
-   * @param {string} settings.links.LINK_KEY.text text which replaces the link identifier in the alert content
-   * @param {string} settings.links.LINK_KEY.url URL to navigate when you click the link. Currently, only internal links are supported in the form of relative or absolute paths
-   * @param {string} settings.links.LINK_KEY.dismissKey dismissKey which represents the key of the link.
-   * @param {number} settings.closeAfter (optional) time in milliseconds that tells Luigi when to close the Alert automatically. If not provided, the Alert will stay on until closed manually. It has to be greater than `100`
+   * @param {Object} settings - the settings for the alert
+   * @param {string} settings.text - the content of the alert. To add a link to the content, you have to set up the link in the `links` object. The key(s) in the `links` object must be used in the text to reference the links, wrapped in curly brackets with no spaces. If you don't specify any text, the alert is not displayed
+   * @param {('info'|'success'|'warning'|'error')} settings.type - sets the type of alert
+   * @param {Object} settings.links - provides links data
+   * @param {Object} settings.links.LINK_KEY - object containing the data for a particular link. To properly render the link in the alert message refer to the description of the **settings.text** parameter
+   * @param {string} settings.links.LINK_KEY.text - text which replaces the link identifier in the alert content
+   * @param {string} settings.links.LINK_KEY.url - URL to navigate when you click the link. Currently, only internal links are supported in the form of relative or absolute paths
+   * @param {string} settings.links.LINK_KEY.dismissKey - dismissKey which represents the key of the link
+   * @param {number} settings.closeAfter - (optional) time in milliseconds that tells Luigi when to close the Alert automatically. If not provided, the Alert will stay on until closed manually. It has to be greater than `100`
    * @returns {promise} which is resolved when the alert is dismissed
    * @example
    * import LuigiClient from '@luigi-project/client';
@@ -194,8 +196,8 @@ class UxManager extends LuigiClientBase {
    * @private
    * @memberof uxManager
    * @param {Object} alertObj
-   * @param {string} alertObj.id alert id
-   * @param {string} alertObj.dismissKey key of the link
+   * @param {string} alertObj.id - alert id
+   * @param {string} alertObj.dismissKey - key of the link
    */
   hideAlert({ id, dismissKey }) {
     const alerts = this.getPromise('alerts');
@@ -221,7 +223,7 @@ class UxManager extends LuigiClientBase {
    *
    * **NOTE:** this must be explicitly allowed on the navigation node level by setting `clientPermissions.changeCurrentLocale` to `true`. (See {@link navigation-parameters-reference.md Node parameters}.)
    *
-   * @param {string} locale locale to be set as the current locale
+   * @param {string} locale - locale to be set as the current locale
    * @memberof uxManager
    */
   setCurrentLocale(locale) {
@@ -275,6 +277,40 @@ class UxManager extends LuigiClientBase {
    */
   getCurrentTheme() {
     return lifecycleManager.currentContext?.internal?.currentTheme;
+  }
+
+  /**
+   * Returns whether F6 fast navigation is enabled in the Luigi Core configuration (`settings.F6Navigation`).
+   * When `true`, a micro frontend should forward its F6 / Shift+F6 keydown events to Luigi Core so that focus can move out of the iframe to the next / previous page group.
+   * @returns {boolean} whether F6 fast navigation is enabled
+   * @memberof uxManager
+   * @since 2.32.0
+   * @example LuigiClient.uxManager().isF6NavigationEnabled();
+   */
+  isF6NavigationEnabled() {
+    return !!lifecycleManager.currentContext?.internal?.fastNavigation;
+  }
+
+  /**
+   * Starts forwarding F6 / Shift+F6 keydown events from this micro frontend to Luigi Core, so that keyboard fast navigation can move focus out of the iframe to the next / previous page group.
+   * While focus is inside the iframe, the F6 keydown fires in the micro frontend's own document and never reaches Luigi Core; calling this method bridges those events. Forwarding only takes effect while core has fast navigation enabled (see {@link #isF6NavigationEnabled isF6NavigationEnabled()}), so it is safe to call unconditionally.
+   * @returns {function} a cleanup function that stops forwarding when called, e.g. on micro frontend teardown
+   * @memberof uxManager
+   * @since 2.32.0
+   * @example
+   * const stopF6Forwarding = LuigiClient.uxManager().enableF6NavigationForwarding();
+   * // later, e.g. on teardown:
+   * stopF6Forwarding();
+   */
+  enableF6NavigationForwarding() {
+    const handler = (e) => {
+      if (e.key === 'F6' && this.isF6NavigationEnabled()) {
+        e.preventDefault();
+        helpers.sendPostMessageToLuigiCore({ msg: 'luigi.fast-nav', shiftKey: e.shiftKey });
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
   }
 
   /**

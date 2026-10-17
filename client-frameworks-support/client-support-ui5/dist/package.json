@@ -2,7 +2,7 @@
   "name": "@luigi-project/client-support-ui5",
   "version": "0.43.0",
   "engines": {
-    "node": ">=18.19.1"
+    "node": ">=20.19.0"
   },
   "module": "ui5-support-lib.js",
   "type": "module",
@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "ssh://github.com/SAP/luigi.git"
+    "url": "ssh://github.com/luigi-project/luigi.git"
   },
   "keywords": [
     "luigi",

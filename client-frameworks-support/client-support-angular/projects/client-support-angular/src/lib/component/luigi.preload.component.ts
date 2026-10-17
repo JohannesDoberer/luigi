@@ -1,11 +1,9 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 
 @Component({
   selector: 'lib-client-support-angular',
   templateUrl: './luigi.preload.component.html',
+  changeDetection: ChangeDetectionStrategy.Eager,
   styles: []
 })
-export class LuigiPreloadComponent implements OnInit {
-  constructor() {}
-  ngOnInit(): void {}
-}
+export class LuigiPreloadComponent {}

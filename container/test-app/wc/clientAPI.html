@@ -132,9 +132,19 @@
         luigiContainer.addEventListener(MFEventID.NAVIGATION_REQUEST, (event) => {
           console.log(event.detail);
           window.location.hash = event.detail.link;
+          if (event.callbackFn && typeof event.callbackFn === 'function') {
+            event.callbackFn(true);
+          }
         });
+        luigiContainer.addEventListener(
+          MFEventID.UPDATE_MODAL_SETTINGS_REQUEST,
+          (event) => {
+            console.log(JSON.stringify(event.detail));
+          },
+        );
         luigiContainer.addEventListener(MFEventID.ALERT_REQUEST, (event) => {
           console.log(event.detail);
+          console.log('payload', event.payload);
           alert(event.detail.text);
           const settings = event.detail;
           alertSettings.settings = settings;
@@ -148,6 +158,14 @@
           MFEventID.UPDATE_TOP_NAVIGATION_REQUEST,
           (event) => {
             alert('UPDATE_TOP_NAVIGATION_REQUEST event received');
+          },
+        );
+        luigiContainer.addEventListener(
+          MFEventID.UPDATE_MODAL_PATH_DATA_REQUEST,
+          (event) => {
+            alert(
+              `LuigiClient.linkManager().updateModalPathInternalNavigation("${event.detail.link}")`,
+            );
           },
         );
         luigiContainer.addEventListener(
@@ -178,12 +196,25 @@
             console.log(event.detail);
           },
         );
+        luigiContainer.addEventListener(MFEventID.ADD_SEARCH_PARAMS_REQUEST, (event) => {
+          if (event) console.log(JSON.stringify(event.detail));
+        });
         luigiContainer.addEventListener(MFEventID.ADD_NODE_PARAMS_REQUEST, (event) => {
           const params = event.detail.params;
           console.log('params', params);
         });
         luigiContainer.addEventListener(MFEventID.SET_ANCHOR_LINK_REQUEST, (event) => {
           console.log('anchor', event.detail);
+        });
+        luigiContainer.addEventListener(MFEventID.SET_DIRTY_STATUS_REQUEST, (event) => {
+          console.log('dirty', event.detail);
+          alert('LuigiClient.uxManager().setDirtyStatus()=' + event.detail.dirty);
+        });
+        luigiContainer.addEventListener(MFEventID.SET_CURRENT_LOCALE_REQUEST, (event) => {
+          console.log('locale', event.detail);
+          alert(
+            'LuigiClient.uxManager().setCurrentLocale()=' + event.detail.currentLocale,
+          );
         });
         luigiContainer.addEventListener(MFEventID.OPEN_USER_SETTINGS_REQUEST, (event) => {
           console.log('Open User Settings Request received', event.detail);
@@ -212,7 +243,22 @@
           MFEventID.HIDE_LOADING_INDICATOR_REQUEST,
           (event) => {
             console.log('Hide Loading Indicator Request received', event.detail);
-            alert('LuigiClient.uxManager().hideAppLoadingIndicator()');
+            alert('LuigiClient.uxManager() -> Hide Loading Indicator Request');
+          },
+        );
+        luigiContainer.addEventListener(
+          MFEventID.SHOW_LOADING_INDICATOR_REQUEST,
+          (event) => {
+            console.log('Show Loading Indicator Request received', event.detail);
+            alert('LuigiClient.uxManager() -> Show Loading Indicator Request');
+          },
+        );
+
+        luigiContainer.addEventListener(
+          MFEventID.CLOSE_CURRENT_MODAL_REQUEST,
+          (event) => {
+            console.log('Close Current Modal Request received', event.detail);
+            alert('LuigiClient.uxManager().closeCurrentModal()');
           },
         );
 

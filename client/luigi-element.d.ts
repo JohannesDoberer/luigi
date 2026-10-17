@@ -109,6 +109,13 @@ export declare interface UxManager {
   getDirtyStatus: () => boolean;
 
   /**
+   * Sets the dirty status, which indicates that there are unsaved changes.
+   * @param {boolean} isDirty - indicates if there are any unsaved changes
+   * @memberof uxManager
+   */
+  setDirtyStatus: (isDirty: boolean) => void;
+
+  /**
    * Removes the backdrop.
    * @memberof uxManager
    */
@@ -536,6 +543,14 @@ export interface LuigiClient {
    * @memberof LuigiClient
    */
   getCoreSearchParams: () => Object;
+  /**
+   * Sends search query parameters to Luigi Core. If it is allowed on node level it will be added to the URL.
+   * @param {Object} searchParams
+   * @param {boolean} keepBrowserHistory
+   * @param {boolean} preventLuigiConfigUpdate If true, the configChanged function will be triggered (since 2.29.0). By default it is set to `false`.
+   * @memberof LuigiClient
+   */
+  addCoreSearchParams: (searchParams: Object, keepBrowserHistory: boolean, preventLuigiConfigUpdate?: boolean) => void;
   /**
    * Returns the dynamic path parameters of the active URL.
    * Path parameters are defined by navigation nodes with a dynamic **pathSegment** value starting with **:**, such as **productId**.

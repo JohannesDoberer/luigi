@@ -19,9 +19,9 @@
   export let nodepath;
   export let modalIndex;
   export let disableBackdrop;
-
   const dispatch = createEventDispatcher();
   let nodeObject;
+  let btpToolLayout;
   let pathData;
   let nodeParams;
   let iframeCreated = false;
@@ -83,7 +83,7 @@
       return;
     }
     if (isDataPrepared) {
-      if (nodeObject.webcomponent) {
+      if (nodeObject.webcomponent || nodeObject.compound) {
         //"Workaround" because we need a webcomponent client api
         // to hide/show the loadingIndicator
         showLoadingIndicator = false;
@@ -93,18 +93,30 @@
           await setModalSize();
         }
 
-        WebComponentService.renderWebComponent(
-          nodeObject.viewUrl,
-          document.querySelector(modalElementClassSelector),
-          {
-            context: pathData.context,
-            clientPermissions: nodeObject.clientPermissions || {},
-            pathParams: pathData.pathParams || {}
-          },
-          nodeObject,
-          undefined,
-          true
-        );
+        if (nodeObject.compound) {
+          WebComponentService.renderWebComponentCompound(
+            nodeObject,
+            document.querySelector(modalElementClassSelector),
+            {
+              context: pathData.context,
+              clientPermissions: nodeObject.clientPermissions || {},
+              pathParams: pathData.pathParams || {}
+            }
+          );
+        } else {
+          WebComponentService.renderWebComponent(
+            nodeObject.viewUrl,
+            document.querySelector(modalElementClassSelector),
+            {
+              context: pathData.context,
+              clientPermissions: nodeObject.clientPermissions || {},
+              pathParams: pathData.pathParams || {}
+            },
+            nodeObject,
+            undefined,
+            true
+          );
+        }
         dispatch('wcCreated', {
           modalWC: document.querySelector(modalElementClassSelector),
           modalWCData: { ...pathData, nodeParams }
@@ -206,12 +218,20 @@
   });
 
   const onMessage = async (e) => {
+    const iframe = IframeHelpers.getValidMessageSource(e);
+
     if ('luigi.show-loading-indicator' === e.data.msg) {
-      showLoadingIndicator = true;
+      const mfeLocation = e.data.location || GenericHelpers.calcMFELocation(iframe);
+      if ((isModal && mfeLocation === 'modal') || (isDrawer && mfeLocation === 'drawer')) {
+        showLoadingIndicator = true;
+      }
     }
 
     if ('luigi.hide-loading-indicator' === e.data.msg) {
-      showLoadingIndicator = false;
+      const mfeLocation = e.data.location || GenericHelpers.calcMFELocation(iframe);
+      if ((isModal && mfeLocation === 'modal') || (isDrawer && mfeLocation === 'drawer')) {
+        showLoadingIndicator = false;
+      }
     }
 
     if ('luigi.get-context' === e.data.msg) {
@@ -253,6 +273,9 @@
         settings.title = getNodeLabel(nodeObject);
       }
     }, ['navigation.viewgroupdata']);
+    btpToolLayout =
+      LuigiConfig.getConfigValue('settings.btpToolLayout') &&
+      GenericHelpers.requestExperimentalFeature('btpToolLayout', false);
     EventListenerHelpers.addEventListener('message', onMessage);
     // only disable accessibility for all cases other than a drawer without backdrop
     !(settings.isDrawer && !settings.backdrop)
@@ -261,7 +284,12 @@
     window.focus();
     // activate loadingindicator if onMount function takes longer than expected
     setTimeout(() => {
-      if (!contextRequested && !nodeObject.webcomponent && nodeObject.loadingIndicator?.enabled !== false) {
+      if (
+        !contextRequested &&
+        !nodeObject.webcomponent &&
+        !nodeObject.compound &&
+        nodeObject.loadingIndicator?.enabled !== false
+      ) {
         showLoadingIndicator = true;
       }
     }, 250);
@@ -297,13 +325,15 @@
 </script>
 
 <div
-  class={isModal || (isDrawer && settings.backdrop) ? 'fd-dialog fd-dialog--active' : 'drawer-dialog'}
+  class={isModal || (isDrawer && settings.backdrop)
+    ? 'fd-dialog fd-dialog--active'
+    : `drawer-dialog ${btpToolLayout ? 'btp-drawer-dialog' : ''}`}
   style={isModal ? 'z-index:1001' : ''}
 >
   <div
     class="fd-dialog__content {isDrawer
       ? settings.backdrop
-        ? 'drawer drawer-dialog__content drawer__backdrop'
+        ? `drawer drawer-dialog__content ${btpToolLayout ? 'btp-drawer__backdrop' : 'drawer__backdrop'}`
         : 'drawer drawer-dialog__content'
       : 'lui-modal-mf lui-modal-index-' + modalIndex}"
     data-testid={isModal ? 'modal-mf' : 'drawer-mf'}
@@ -364,13 +394,9 @@
 </div>
 
 <style lang="scss">
-  :global(.lui-breadcrumb) .drawer-dialog {
-    top: calc(#{$combinedLayoutGap} + #{$topNavHeight} + var(--luigi__breadcrumb--height));
-  }
-
   .drawer-dialog {
     position: absolute;
-    top: calc(#{$combinedLayoutGap} + #{$topNavHeight});
+    top: calc(#{$topNavHeight});
     bottom: 0;
     width: 25%;
     z-index: 3;
@@ -381,6 +407,14 @@
     }
   }
 
+  .drawer-dialog.btp-drawer-dialog {
+    top: calc(#{$combinedLayoutGap} + #{$topNavHeight});
+  }
+
+  :global(.lui-breadcrumb) .drawer-dialog.btp-drawer-dialog {
+    top: calc(#{$combinedLayoutGap} + #{$topNavHeight} + var(--luigi__breadcrumb--height));
+  }
+
   .drawer {
     bottom: 0;
     width: 25vw;
@@ -389,12 +423,24 @@
     right: 0;
   }
 
+  :global(.lui-breadcrumb) .drawer-dialog {
+    top: calc(#{$topNavHeight} + var(--luigi__breadcrumb--height));
+  }
+
   :global(.lui-breadcrumb) .drawer__backdrop {
     top: calc(#{$topNavHeight} + var(--luigi__breadcrumb--height));
   }
 
+  :global(.lui-breadcrumb) .btp-drawer__backdrop {
+    top: calc(#{$topNavHeight} + var(--luigi__breadcrumb--height) + $combinedLayoutGap);
+  }
+
   .drawer__backdrop {
     top: $topNavHeight;
+  }
+
+  .btp-drawer__backdrop {
+    top: calc($topNavHeight + $combinedLayoutGap);
   }
 
   .iframeModalCtn {

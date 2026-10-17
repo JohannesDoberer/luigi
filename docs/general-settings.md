@@ -33,6 +33,7 @@ settings: {
   header: {  object / function / Promise
     logo: 'path/to/image.png',
     title: 'Luigi Demo',
+    subTitle: 'Application subtitle',
     favicon: 'path/to/favicon.ico'
   },
   featureToggles : {
@@ -123,7 +124,7 @@ Luigi.setConfig({
 
 ### customSandboxRules
 - **type**: array
-- **description**: an array of custom rules for the content in the iframe. You can extend the [Luigi default sandbox rules](https://github.com/SAP/luigi/blob/af1deebb392dcec6490f72576e32eb5853a894bc/core/src/utilities/helpers/iframe-helpers.js#L140) by adding further rules.
+- **description**: an array of custom rules for the content in the iframe. You can extend the [Luigi default sandbox rules](https://github.com/luigi-project/luigi/blob/af1deebb392dcec6490f72576e32eb5853a894bc/core/src/utilities/helpers/iframe-helpers.js#L140) by adding further rules.
 
 ### customTranslationImplementation
 - **type**: object/function returning an object
@@ -139,10 +140,25 @@ Take a look at our [i18n](i18n.md) section for an implementation suggestion.
 <!-- add-attribute:class:warning -->
 > **NOTE:** You can translate Luigi internal messages by providing translation for [these keys](../core/src/utilities/defaultLuigiTranslationTable.js).
 
+
 ### expandCategoryByNavigation
 - **type**: boolean
 - **description** if you have a [category](https://docs.luigi-project.io/docs/navigation-parameters-reference/?section=category) set to `collapsible`, you can set this parameter to `true` in order to expand the category when navigating to one of its children.
 
+
+### F6Navigation
+- **type**: boolean
+- **description**: enables keyboard fast navigation. When set to `true`, users can press <kbd>F6</kbd> to move focus to the first focusable element of the next page group (header, side navigation, content) and <kbd>Shift</kbd>+<kbd>F6</kbd> to move to the previous group, cycling around the ends. This improves keyboard accessibility by letting users skip between major regions instead of tabbing through every element.
+- **default**: by default, the parameter is set to `false`, which means fast navigation is disabled.
+<!-- add-attribute:class:warning -->
+> **NOTE:** While focus is inside a micro frontend's iframe, the <kbd>F6</kbd> keydown fires in the micro frontend's own document and never reaches Luigi Core, so focus cannot leave the iframe automatically. To let users jump back out of the iframe, the micro frontend must forward the event to Luigi Core. Call `LuigiClient.uxManager().enableF6NavigationForwarding()` to opt in — it forwards <kbd>F6</kbd> / <kbd>Shift</kbd>+<kbd>F6</kbd> and is a no-op while core has fast navigation disabled:
+> ```javascript
+> import LuigiClient from '@luigi-project/client';
+>
+> // Returns a cleanup function; call it to stop forwarding (e.g. on teardown).
+> const stopF6Forwarding = LuigiClient.uxManager().enableF6NavigationForwarding();
+> ```
+> If you prefer to handle the event yourself, `LuigiClient.uxManager().isF6NavigationEnabled()` returns whether core has fast navigation enabled.
 
 ### featureToggles.queryStringParam
 - **description**: allows you to set the query parameter name for the feature toggles. This parameter is then used when setting feature toggles via appending to the URL like `?ft=name`. You will need this value set before using the feature toggle functionality.
@@ -201,10 +217,21 @@ Take a look at our [i18n](i18n.md) section for an implementation suggestion.
 ### header.title
 - **type**: string
 - **description**: defines the top left navigation title.
-- **example**: 
+- **example**:
 ```
  header: {  object / function / Promise
     title: 'Luigi Demo'
+  },
+```
+
+### header.subTitle
+- **type**: string
+- **description**: defines the subtitle displayed below the top left navigation title.
+- **example**:
+```
+ header: {  object / function / Promise
+    title: 'Luigi Demo',
+    subTitle: 'Application subtitle'
   },
 ```
 
@@ -237,6 +264,7 @@ For example, to allow 'fullscreen' for non-modal iframes:
 You can set the following values:
   * `simple` displays basic profile menu list of entities.
   * `Fiori3` displays renewed profile menu layout according to the Fiori 3 styleguides. It contains the avatar of a user, if applicable, and additional description. **since**: v1.14.0
+  * `vega` displays renewed profile menu layout according to the `Vega` styleguides. **since**: v2.23.0
 - **default**: if you don't specify any value for **profileType**, the `simple` layout will be used as a default one.
 
 ### responsiveNavigation
@@ -253,6 +281,55 @@ You can set the following values:
 You can set the following values:
   * `button` renders a **button** tag.
 - **default**: if you don't specify any value for  **semiCollapsibleButtonStyle**, the control is rendered as an **i** tag.
+
+### sideNav.displayFooterWhenCollapsed
+- **description**: shows the footer in the `Vega` layout even when the left navigation is collapsed.
+- **since** 2.25.0
+
+### sideNav.style
+- **description**: Displays the updated side navigation layout styled according to the `Vega` design guidelines. Must be set to `vega`. 
+- **since** v2.23.0
+
+#### sideNav.subCategoryDelimiter
+- **description**: With the vega layout, you can define subcategories in the side navigation. A custom delimiter can be set to separate subcategories; by default, this is `::`.
+- **since** v2.23.0
+- **example**:
+```javascript
+{
+  label: 'Node',
+  category: {
+      id: 'myCat',
+      label: 'My Category',
+      collapsible: true,
+      icon: 'home'
+  },
+  pathSegment: 'node',
+  viewUrl: 'https://fiddle.luigi-project.io/examples/microfrontends/multipurpose.html',
+}, {
+  label: 'Node1',
+  category: {
+      id: 'myCat::subCat',
+      label: 'My Subcategory',
+      collapsible: true,
+      icon: 'group'
+  },
+  pathSegment: 'node1',
+  viewUrl: 'https://fiddle.luigi-project.io/examples/microfrontends/multipurpose.html',
+  context: {
+      title: 'node1',
+      content: 'Click on "Modify Config" at the bottom right and play around with your Luigi configuration'
+  }
+}, {
+  label: 'Node2',
+  category: 'myCat::subCat',
+  pathSegment: 'node2',
+  viewUrl: 'https://fiddle.luigi-project.io/examples/microfrontends/multipurpose.html',
+  context: {
+      title: 'node2',
+      content: 'Click on "Modify Config" at the bottom right and play around with your Luigi configuration'
+  }
+}
+```
 
 ### sideNavCompactMode
 - **description**: reduces the dimensions of the side navigation and allows you to display more information.
@@ -294,6 +371,25 @@ theming: {
 <link rel="stylesheet" href="<PATH/TO/LUIGI/PACKAGE/luigi_horizon.css" />
 ```
 
+### unsavedChangesHandler
+- **type**: function
+- **description**: the `unsavedChangesHandler` can be implemented as an alternative to the standard unsaved changes modal. The function must return a promise."
+- **example**:
+```javascript
+settings:{
+  unsavedChangesHandler: () => {
+    return Luigi.ux().showConfirmationModal({
+      type: 'information',
+      header: "Unsaved Changes",
+      body: "You have unsaved changes. Do you want to <b>leave</b>?",
+      buttonConfirm: "Yes",
+      buttonDismiss: "No"
+    });
+  }
+}
+```
+- **since** NEXT_RELEASE
+
 ### webcomponentCreationInterceptor
 - **type**: function
 - **description**: called on web component creation, it gives you full control over the created web component DOM element. You can modify it according to your needs just before it is added to the DOM tree.
@@ -308,7 +404,7 @@ This function is called with the following parameters:
 
 You can check whether the user's browser supports third-party cookies by defining a **thirdPartyCookieCheck** object which expects a function called **thirdPartyCookieErrorHandling**, optional **disabled** and **thirdPartyCookiesScriptLocation** parameters. When **thirdPartyCookiesScriptLocation** is set, the Luigi Core application checks third-party cookie support only once and not on every micro frontend call. If it is *not* set, the Luigi Core application checks third-party cookie support whenever a micro frontend is loaded.
 
-To detect whether the user's browser supports the mechanism, use the script in the [`third-party-cookies`](https://github.com/SAP/luigi/tree/main/core/third-party-cookies) catalog. Deploy this file on a domain different from your main application's and set **thirdPartyCookieScriptLocation** to the `init.html` file. During initialization, Luigi detects cookies support and produces an alert if cookies are disabled in the user's browser.
+To detect whether the user's browser supports the mechanism, use the script in the [`third-party-cookies`](https://github.com/luigi-project/luigi/tree/main/core/third-party-cookies) catalog. Deploy this file on a domain different from your main application's and set **thirdPartyCookieScriptLocation** to the `init.html` file. During initialization, Luigi detects cookies support and produces an alert if cookies are disabled in the user's browser.
 
 ### Parameters
 

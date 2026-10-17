@@ -1,4 +1,4 @@
-on: 
+on:
   workflow_call:
     inputs:
       buildcache_key:
@@ -6,31 +6,33 @@ on:
         required: true
 
 name: Common
+permissions:
+  contents: read
 env:
   CYPRESS_CACHE_FOLDER: ~/cypress-binary-cache
 
 jobs:
   clear_cache:
+    permissions:
+      actions: write
+      contents: read
     name: Clear Caches
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: '24.x'
       - run: |
-          gh extension install actions/gh-actions-cache
-          
-          REPO=${{ github.repository }}
-          BRANCH=${{ github.ref }}
-
-          ## echo "Fetching list of cache key"
-          ## cacheKeysForPR=$(gh actions-cache list -R $REPO -B $BRANCH | cut -f 1 )
           cacheKeysForPR=(${{ inputs.buildcache_key }})
 
-          ## Setting this to not fail the workflow while deleting cache keys. 
+          ## Setting this to not fail the workflow while deleting cache keys.
           set +e
           echo "Deleting caches..."
           for cacheKey in $cacheKeysForPR
           do
-              gh actions-cache delete $cacheKey -R $REPO -B $BRANCH --confirm
+              gh cache delete $cacheKey
           done
           echo "Done"
         env:
@@ -41,18 +43,18 @@ jobs:
     needs: clear_cache
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: '20.14.0'
-      - uses: actions/cache@v4
+          node-version: '24.x'
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: |
             ~/tmp_build
             ~/cypress-binary-cache
           key: ${{ inputs.buildcache_key }}
       - run: ls test
-      # Bundle all 
+      # Bundle all
       - run: npm run bootstrap
       - run: npm run bundle
       # Check bundlesize not exceeded

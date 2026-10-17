@@ -10,6 +10,9 @@ export default class extends HTMLElement {
     const template = document.createElement('template');
     template.innerHTML = `<section><p>Hello World!</p></section>`;
 
+    const pageTitle = document.createElement('template');
+    pageTitle.innerHTML = `<h1 id="title">WC based Container</h1>`;
+
     const templateBtn = document.createElement('template');
     templateBtn.innerHTML = '<button id="aButton">Click me!</button>';
 
@@ -28,8 +31,14 @@ export default class extends HTMLElement {
     const setAnchorBtn = document.createElement('template');
     setAnchorBtn.innerHTML = '<button id="setAnchor">setAnchor</button>';
 
+    const setLocaleBtn = document.createElement('template');
+    setLocaleBtn.innerHTML = '<button id="setCurrentLocale">setCurrentLocale</button>';
+
     const getCoreSearchParamsBtn = document.createElement('template');
     getCoreSearchParamsBtn.innerHTML = '<button id="coreSearchParams">getCoreSearchParams</button>';
+
+    const addCoreSearchParamsBtn = document.createElement('template');
+    addCoreSearchParamsBtn.innerHTML = '<button id="addCoreSearchParams">addCoreSearchParams</button>';
 
     const getPathParamsBtn = document.createElement('template');
     getPathParamsBtn.innerHTML = '<button id="getPathParams">getPathParams</button>';
@@ -51,6 +60,9 @@ export default class extends HTMLElement {
 
     const getDirtyStatusBtn = document.createElement('template');
     getDirtyStatusBtn.innerHTML = '<button id="getDirtyStatus">getDirtyStatus</button>';
+
+    const setDirtyStatusBtn = document.createElement('template');
+    setDirtyStatusBtn.innerHTML = '<button id="setDirtyStatus">setDirtyStatus</button>';
 
     const updateContextBtn = document.createElement('template');
     updateContextBtn.innerHTML = '<button id="updateContext">updateContext</button>';
@@ -81,8 +93,14 @@ export default class extends HTMLElement {
     hasBack(), updateTopNavigation(), goBack(), pathExists()
     </button>`;
 
+    const updateModalPathBtn = document.createElement('template');
+    updateModalPathBtn.innerHTML = '<button id="updateModalPathBtn">lm.updateModalPathInternalNavigation</button>';
+
     const openAsModalBtn = document.createElement('template');
     openAsModalBtn.innerHTML = '<button id="openAsModalBtn">lm.openAsModal</button>';
+
+    const updateModalSettingsBtn = document.createElement('template');
+    updateModalSettingsBtn.innerHTML = '<button id="updateModalSettingsBtn">lm.updateModalSettings</button>';
 
     const openAsDrawerBtn = document.createElement('template');
     openAsDrawerBtn.innerHTML = '<button id="openAsDrawerBtn">lm.openAsDrawer</button>';
@@ -94,7 +112,7 @@ export default class extends HTMLElement {
     navigateBtn.innerHTML = '<button id="navigateBtn">navigate</button>';
 
     const alertBtn = document.createElement('template');
-    alertBtn.innerHTML = '<button id="alertBtn">uxManager.showAlert()</button';
+    alertBtn.innerHTML = '<button id="alertBtn">uxManager.showAlert()</button>';
 
     const navigateToIntentBtn = document.createElement('template');
     navigateToIntentBtn.innerHTML = '<button id="navigateToIntent">navigateToIntent</button>';
@@ -102,16 +120,27 @@ export default class extends HTMLElement {
     const confirmationModalBtn = document.createElement('template');
     confirmationModalBtn.innerHTML = '<button id="confirmationModal">showConfirmationModal</button>';
 
+    const showLoadingBtn = document.createElement('template');
+    showLoadingBtn.innerHTML = '<button id="showLoadingBtn">uxManager.showLoadingIndicator()</button>';
+
+    const hideLoadingBtn = document.createElement('template');
+    hideLoadingBtn.innerHTML = '<button id="hideLoadingBtn">uxManager.hideLoadingIndicator()</button>';
+
     const customMessageDiv = document.createElement('template');
     customMessageDiv.innerHTML = '<div id="customMessageDiv">Received Custom Message: </div>';
 
     const closeAlertResponse = document.createElement('template');
     closeAlertResponse.innerHTML = '<span id="closeAlertResponse"></span>';
 
+    const closeCurrentModalBtn = document.createElement('template');
+    closeCurrentModalBtn.innerHTML = '<button id="closeCurrentModalBtn">closeCurrentModal</button>';
+
     this._shadowRoot = this.attachShadow({
       mode: 'open',
       delegatesFocus: false
     });
+
+    this._shadowRoot.appendChild(pageTitle.content.cloneNode(true));
     this._shadowRoot.appendChild(template.content.cloneNode(true));
     this._shadowRoot.appendChild(templateBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(templateBtn2.content.cloneNode(true));
@@ -119,16 +148,21 @@ export default class extends HTMLElement {
     this._shadowRoot.appendChild(addNodeParamsBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(getNodeParamsBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(setAnchorBtn.content.cloneNode(true));
+    this._shadowRoot.appendChild(setLocaleBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(getCoreSearchParamsBtn.content.cloneNode(true));
+    this._shadowRoot.appendChild(addCoreSearchParamsBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(getPathParamsBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(getClientPermissionsBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(getUserSettingsBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(getAnchorBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(getDirtyStatusBtn.content.cloneNode(true));
+    this._shadowRoot.appendChild(setDirtyStatusBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(updateContextBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(uxManagerMultipleRequestsBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(linkManagerChainedFunctionsRequestsBtn.content.cloneNode(true));
+    this._shadowRoot.appendChild(updateModalPathBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(openAsModalBtn.content.cloneNode(true));
+    this._shadowRoot.appendChild(updateModalSettingsBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(openAsDrawerBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(openAsSplitviewBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(navigateBtn.content.cloneNode(true));
@@ -138,6 +172,9 @@ export default class extends HTMLElement {
     this._shadowRoot.appendChild(getCurrentRouteBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(navigateToIntentBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(confirmationModalBtn.content.cloneNode(true));
+    this._shadowRoot.appendChild(showLoadingBtn.content.cloneNode(true));
+    this._shadowRoot.appendChild(hideLoadingBtn.content.cloneNode(true));
+    this._shadowRoot.appendChild(closeCurrentModalBtn.content.cloneNode(true));
     this._shadowRoot.appendChild(customMessageDiv.content.cloneNode(true));
     this._shadowRoot.appendChild(empty.content.cloneNode(true));
     this._shadowRoot.appendChild(closeAlertResponse.content.cloneNode(true));
@@ -223,10 +260,24 @@ export default class extends HTMLElement {
       }
     });
 
+    this.$setLocaleBtn = this._shadowRoot.querySelector('#setCurrentLocale');
+    this.$setLocaleBtn.addEventListener('click', () => {
+      if (this.LuigiClient) {
+        this.LuigiClient.uxManager().setCurrentLocale('de');
+      }
+    });
+
     this.$coreSearchParamsBtn = this._shadowRoot.querySelector('#coreSearchParams');
     this.$coreSearchParamsBtn.addEventListener('click', () => {
       if (this.LuigiClient) {
         alert(JSON.stringify(this.LuigiClient.getCoreSearchParams()));
+      }
+    });
+
+    this.$addCoreSearchParamsBtn = this._shadowRoot.querySelector('#addCoreSearchParams');
+    this.$addCoreSearchParamsBtn.addEventListener('click', () => {
+      if (this.LuigiClient) {
+        this.LuigiClient.addCoreSearchParams({ luigi: 'rocks' });
       }
     });
 
@@ -273,6 +324,11 @@ export default class extends HTMLElement {
       });
     });
 
+    this.$setDirtyStatusBtn = this._shadowRoot.querySelector('#setDirtyStatus');
+    this.$setDirtyStatusBtn.addEventListener('click', () => {
+      this.LuigiClient.uxManager().setDirtyStatus(true);
+    });
+
     this.$updateContextBtn = this._shadowRoot.querySelector('#updateContext');
     this.$updateContextBtn.addEventListener('click', () => {
       this.LuigiClient.uxManager().showAlert({
@@ -312,13 +368,39 @@ export default class extends HTMLElement {
       });
     });
 
+    this.$updateModalPathBtn = this._shadowRoot.querySelector('#updateModalPathBtn');
+    this.$updateModalPathBtn.addEventListener('click', () => {
+      const history = true;
+      const link = '/test/route';
+      const modal = { title: 'Some modal' };
+
+      if (this.LuigiClient) {
+        this.LuigiClient.linkManager().updateModalPathInternalNavigation(link, modal, history);
+      }
+    });
+
     this.$openAsModalBtn = this._shadowRoot.querySelector('#openAsModalBtn');
     this.$openAsModalBtn.addEventListener('click', () => {
-      this.LuigiClient.linkManager().openAsModal('openAsModal-wc', {
-        title: 'Modal Title',
-        size: 'm'
+      this.LuigiClient.linkManager()
+        .openAsModal('openAsModal-wc', {
+          title: 'Modal Title',
+          size: 'm'
+        })
+        .then(() => {
+          this.LuigiClient.uxManager().showAlert({
+            text: 'LuigiClient.linkManager().openAsModal() - resolved',
+            type: 'info'
+          });
+        });
+    });
+    this.$updateModalSettingsBtn = this._shadowRoot.querySelector('#updateModalSettingsBtn');
+    this.$updateModalSettingsBtn.addEventListener('click', () => {
+      this.LuigiClient.linkManager().updateModalSettings({
+        title: 'Updated Modal Title',
+        size: 'l'
       });
     });
+
     this.$openAsDrawerBtn = this._shadowRoot.querySelector('#openAsDrawerBtn');
     this.$openAsDrawerBtn.addEventListener('click', () => {
       this.LuigiClient.linkManager().openAsDrawer('openAsDrawer-wc', {
@@ -348,6 +430,16 @@ export default class extends HTMLElement {
         size: 'm'
       };
       this.LuigiClient.linkManager().navigate(path, 0, true, modalSettings);
+    });
+
+    this.$showLoadingBtn = this._shadowRoot.querySelector('#showLoadingBtn');
+    this.$showLoadingBtn.addEventListener('click', () => {
+      this.LuigiClient.uxManager().showLoadingIndicator();
+    });
+
+    this.$hideLoadingBtn = this._shadowRoot.querySelector('#hideLoadingBtn');
+    this.$hideLoadingBtn.addEventListener('click', () => {
+      this.LuigiClient.uxManager().hideLoadingIndicator();
     });
 
     this.$linkManagerUpdateTopPathExistsBack = this._shadowRoot.querySelector('#linkManagerUpdateTopPathExistsBack');
@@ -423,6 +515,11 @@ export default class extends HTMLElement {
             type: 'warning'
           });
         });
+    });
+
+    this.$closeCurrentModalBtn = this._shadowRoot.querySelector('#closeCurrentModalBtn');
+    this.$closeCurrentModalBtn.addEventListener('click', () => {
+      this.LuigiClient.uxManager().closeCurrentModal();
     });
   }
 

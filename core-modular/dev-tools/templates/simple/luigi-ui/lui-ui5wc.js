@@ -1,0 +1,1647 @@
+/** @typedef {import('../../../../src/types/connector').LuigiConnector} LuigiConnector */
+/** @typedef {import('../../../../src/luigi').Luigi} Luigi */
+
+function storeExpandedState(uid, expanded) {
+  const stored = localStorage.getItem('luigi.preferences.navigation.expandedCategories');
+  try {
+    let arr = stored ? JSON.parse(stored) : [];
+    if (expanded) {
+      arr.push(uid);
+    } else {
+      arr = arr.filter((item) => {
+        return item !== uid;
+      });
+    }
+    localStorage.setItem('luigi.preferences.navigation.expandedCategories', JSON.stringify(arr));
+  } catch (e) {
+    // ?
+  }
+}
+
+function readExpandedState(uid) {
+  const stored = localStorage.getItem('luigi.preferences.navigation.expandedCategories');
+  try {
+    return JSON.parse(stored).includes(uid);
+  } catch (e) {
+    // ?
+  }
+  return false;
+}
+
+function addShellbarItem(shellbar, item, navClickFn) {
+  if (item.node?.hideFromNav) {
+    return;
+  }
+  if (item.node) {
+    const itemEl = document.createElement('ui5-shellbar-item');
+    if (item.node.badgeCounter) {
+      item.node.badgeCounter.count().then((count) => {
+        itemEl.setAttribute('count', count);
+        itemEl.setAttribute('aria-label', item.node.badgeCounter.label);
+      });
+    }
+    itemEl.setAttribute('icon', item.node.icon);
+    itemEl.setAttribute('selected', item.selected);
+    itemEl.setAttribute('text', item.label);
+    itemEl.setAttribute('luigi-route', item.node.pathSegment);
+    itemEl.addEventListener('click', () => {
+      navClickFn(item);
+    });
+    shellbar.appendChild(itemEl);
+  }
+  if (item.category) {
+    const itemEl = document.createElement('ui5-shellbar-item');
+    itemEl.setAttribute('icon', item.category.icon);
+    itemEl.setAttribute('text', item.category.label);
+    itemEl.setAttribute('category-uid', item.category.id);
+    itemEl.setAttribute('tooltip', item.category.tooltip);
+    shellbar.appendChild(itemEl);
+    renderCategoryPopover(item.category, itemEl);
+    itemEl.addEventListener('click', createCategoryClickHandler(item.category.id));
+  }
+}
+
+function setDialogSize(dialog, settings) {
+  const regex = /^.?[0-9]{1,3}(%|px|rem|em|vh|vw)$/;
+  if (settings.width && settings.width.match(regex) && settings.height && settings.height.match(regex)) {
+    dialog.style.cssText += `width:${settings.width};height:${settings.height};`;
+  } else {
+    dialog.classList.forEach((classListEntry) => {
+      if (classListEntry.startsWith('lui-dialog--')) {
+        dialog.classList.remove(classListEntry);
+      }
+    });
+    switch (settings.size) {
+      case 'fullscreen':
+        dialog.classList.add('lui-dialog--fullscreen');
+        break;
+      case 'm':
+        dialog.classList.add('lui-dialog--medium');
+        break;
+      case 's':
+        dialog.classList.add('lui-dialog--small');
+        break;
+      default:
+        dialog.classList.add('lui-dialog--large');
+    }
+  }
+}
+
+function renderAppSwitcherItems(shellbar, appSwitcherData, lastSelectedItem = null) {
+  if (!appSwitcherData.items || appSwitcherData.items.length === 0) return;
+
+  if (appSwitcherData.itemRenderer) {
+    // const appSwitcherApiObj = {
+    //   closeDropDown: () => {
+    //     document.querySelector('ui5-shellbar').removeAttribute('show-app-switcher');
+    //   }
+    // };
+    appSwitcherData.items.forEach((item, index) => {
+      if (item.link === lastSelectedItem) return;
+      const ui5Li = document.createElement('ui5-li-custom');
+      ui5Li.setAttribute('slot', 'menuItems');
+      appSwitcherData.itemRenderer(item, ui5Li);
+      index === 0 && ui5Li.setAttribute('testtest', '');
+      shellbar.appendChild(ui5Li);
+    });
+  } else {
+    shellbar.querySelectorAll('ui5-li[slot=menuItems]').forEach((item) => item.remove());
+    appSwitcherData.items.forEach((item, index) => {
+      if (item.link === lastSelectedItem) return;
+      const ui5Li = document.createElement('ui5-li');
+      ui5Li.setAttribute('slot', 'menuItems');
+      ui5Li.setAttribute('text', item.title);
+      ui5Li.innerText = item.title;
+      ui5Li.setAttribute('description', item.subTitle);
+      ui5Li.setAttribute('luigi-route', item.link);
+      index === 0 && ui5Li.setAttribute('testtest', '');
+      shellbar.appendChild(ui5Li);
+    });
+  }
+}
+
+function renderProductSwitcherItems(productSwitcherConfig) {
+  document.querySelector('ui5-navigation-layout > #productswitch-popover')?.remove();
+  const productSwitchPopover = document.createElement('ui5-popover');
+  const productSwitch = document.createElement('ui5-product-switch');
+  productSwitchPopover.setAttribute('id', 'productswitch-popover');
+  productSwitchPopover.setAttribute('placement', 'Bottom');
+  productSwitchPopover.appendChild(productSwitch);
+  productSwitcherConfig.items?.forEach((item) => {
+    const productSwitchItem = document.createElement('ui5-product-switch-item');
+    item.altText && productSwitchItem.setAttribute('alt', item.altText);
+    item.label && productSwitchItem.setAttribute('title-text', item.label);
+    item.icon && productSwitchItem.setAttribute('icon', item.icon);
+    item.testId && productSwitchItem.setAttribute('data-testid', item.testId);
+    item.subTitle && productSwitchItem.setAttribute('subtitle-text', item.subTitle);
+    if (item.externalLink?.url) {
+      productSwitchItem.setAttribute('target', item.externalLink.sameWindow ? '_self' : '_blank');
+    }
+    productSwitchItem.addEventListener('click', () => {
+      productSwitcherConfig.productSwitcherItemClick?.(item);
+      document.getElementById('productswitch-popover').open = false;
+    });
+    productSwitch.appendChild(productSwitchItem);
+  });
+
+  document.querySelector('ui5-navigation-layout').appendChild(productSwitchPopover);
+}
+
+function onProductSwitcherClick(event) {
+  const popover = document.getElementById('productswitch-popover');
+  if (popover.open) {
+    popover.open = false;
+  } else {
+    event.preventDefault();
+    popover.opener = event.detail.targetRef;
+    popover.open = true;
+  }
+}
+
+function renderCategoryPopover(catObj, shellbarItem) {
+  const catPopover = document.createElement('ui5-popover');
+  catPopover.setAttribute('placement', 'Bottom');
+  (catObj.id && catPopover.setAttribute('id', `luigi-${catObj.id}-popover`)) ||
+    (catObj.label && catPopover.setAttribute('id', `luigi-${catObj.id}-popover`));
+  const catList = document.createElement('ui5-list');
+  catObj.nodes?.forEach((item) => {
+    const catLi = document.createElement('ui5-li');
+    catLi.setAttribute('icon', item.icon);
+    catLi.setAttribute('luigi-route', item.node.pathSegment);
+    if (item.node.badgeCounter) {
+      item.node.badgeCounter.count().then((count) => {
+        const badge = document.createElement('ui5-button-badge');
+        badge.setAttribute('design', 'OverlayText');
+        badge.setAttribute('text', count);
+        catLi.setAttribute('count', count);
+        catLi.setAttribute('aria-label', item.node.badgeCounter.label);
+        catLi.appendChild(badge);
+        let totalCount = 0;
+        catList.childNodes.forEach((child) => {
+          const childCount = parseInt(child.getAttribute('count')) || 0;
+          totalCount += childCount;
+        });
+        shellbarItem.setAttribute('count', totalCount);
+      });
+    }
+
+    catLi.innerText = item.label;
+    catLi.addEventListener('click', () => {
+      globalThis.Luigi.navigation().navigate(catLi.getAttribute('luigi-route'));
+    });
+    catList.appendChild(catLi);
+  });
+  catPopover.appendChild(catList);
+  document.querySelector('ui5-navigation-layout').appendChild(catPopover);
+}
+
+function createCategoryClickHandler(id) {
+  return function onCategoryClick(event) {
+    const popover = document.getElementById(`luigi-${id}-popover`);
+    if (popover.open) {
+      popover.open = false;
+    } else {
+      event.preventDefault();
+      popover.opener = event.detail.targetRef;
+      popover.open = true;
+    }
+  };
+}
+
+function renderProfilePopover(profileObj, avatar) {
+  const profilePopover = document.createElement('ui5-popover');
+  const profileList = document.createElement('ui5-list');
+  const uInfoWrapper = document.createElement('div');
+  uInfoWrapper.classList.add('lui-user-info');
+
+  profilePopover.setAttribute('id', 'profile-popover');
+  profilePopover.setAttribute('placement', 'Bottom');
+
+  profileObj.items?.forEach((item, index) => {
+    const profileLi = document.createElement('ui5-li');
+
+    profileLi.setAttribute('text', item.label);
+    profileLi.innerText = item.label;
+
+    if (item.children?.length) {
+      const childPopover = document.createElement('ui5-popover');
+      const childList = document.createElement('ui5-list');
+
+      profileLi.setAttribute('id', 'profile-opener-' + index);
+      profileLi.setAttribute('type', 'Navigation');
+      profileLi.addEventListener('click', () => {
+        childPopover.open = !childPopover.open;
+      });
+
+      childPopover.setAttribute('opener', 'profile-opener-' + index);
+      childPopover.setAttribute('placement', 'Start');
+
+      item.children.forEach((child) => {
+        const childLi = document.createElement('ui5-li');
+
+        childLi.setAttribute('text', child.label);
+        childLi.innerText = child.label;
+
+        if (child.icon) {
+          childLi.setAttribute('icon', child.icon);
+        }
+
+        childLi.addEventListener('click', () => {
+          profileObj.itemClick(child);
+        });
+
+        childList.appendChild(childLi);
+      });
+
+      childPopover.appendChild(childList);
+      document.querySelector('ui5-navigation-layout').appendChild(childPopover);
+    } else {
+      profileLi.addEventListener('click', () => {
+        profileObj.itemClick(item);
+      });
+    }
+
+    profileList.appendChild(profileLi);
+  });
+
+  if (profileObj.settings) {
+    const profileLi = document.createElement('ui5-li');
+
+    profileLi.setAttribute('text', profileObj.settings.label);
+    profileLi.innerText = profileObj.settings.label;
+    profileLi.setAttribute('icon', profileObj.settings.icon);
+
+    profileLi.addEventListener('click', () => {
+      profileObj.settings.openUserSettings();
+    });
+
+    profileList.appendChild(profileLi);
+  }
+
+  if (profileObj.logout) {
+    const profileLi = document.createElement('ui5-li');
+
+    profileLi.setAttribute('text', profileObj.logout.altText);
+    profileLi.innerText = profileObj.logout.label;
+
+    profileLi.addEventListener('click', () => {
+      profileObj.logout.doLogout();
+    });
+
+    profileList.appendChild(profileLi);
+  }
+
+  profilePopover.appendChild(uInfoWrapper);
+  profilePopover.appendChild(profileList);
+  document.querySelector('ui5-navigation-layout').appendChild(profilePopover);
+
+  profileObj.onUserInfoUpdate((userInfo) => {
+    uInfoWrapper.innerHTML = userInfo.picture ? `<div><img src="${userInfo.picture}" style="width: 100px"/></div>` : '';
+    uInfoWrapper.innerHTML += /*html*/ `
+      <div>${userInfo.name || ''}</div>
+      <div>${userInfo.email || ''}</div>
+      <div>${userInfo.description || ''}</div>
+    `;
+    if (userInfo.picture) {
+      avatar.setAttribute('data-testid', 'luigi-topnav-profile-btn');
+      avatar.innerHTML = `<img src="${userInfo.picture}"/>`;
+    } else {
+      avatar.setAttribute('initials', userInfo.initials);
+      avatar.setAttribute('data-testid', 'luigi-topnav-profile-initials');
+    }
+  });
+}
+
+function onProfileClick(event) {
+  const popover = document.getElementById('profile-popover');
+
+  if (popover.open) {
+    popover.open = false;
+  } else {
+    event.preventDefault();
+    popover.opener = event.detail.targetRef;
+    popover.open = true;
+  }
+}
+
+const replacePlaceholdersWithUI5Links = (text, linksObj) => {
+  const container = document.createElement('div');
+  container.innerHTML = text;
+
+  for (const key in linksObj) {
+    const linkKey = `{${key}}`;
+    const linkData = linksObj[key];
+
+    if (container.innerHTML.includes(linkKey)) {
+      const ui5Link = document.createElement('ui5-link');
+      ui5Link.setAttribute('luigiAlertLink', key);
+      ui5Link.innerText = linkData.text;
+      container.innerHTML = container.innerHTML.replace(linkKey, ui5Link.outerHTML);
+    }
+  }
+
+  return container.innerHTML;
+};
+
+function renderNodeOrCategory(item, leftNavData) {
+  const frag = document.createDocumentFragment();
+
+  if (item.node?.hideFromNav) {
+    return frag;
+  }
+
+  if (item.node && item.label) {
+    const el = document.createElement('ui5-side-navigation-item');
+    el.setAttribute('text', item.label);
+    el.setAttribute('tooltip', item.tooltip);
+    if (item.icon) el.setAttribute('icon', item.icon);
+    if (item.externalLink?.url) {
+      el.setAttribute('href', item.externalLink.url);
+      el.setAttribute('target', item.externalLink.sameWindow ? '_self' : '_blank');
+    } else {
+      el.setAttribute('luigi-route', leftNavData.basePath + '/' + item.node.pathSegment);
+      if (item.href) el.setAttribute('href', item.href);
+    }
+    if (item.node?.statusBadge?.label) {
+      const badge = document.createElement('ui5-tag');
+      badge.setAttribute('design', item.node.statusBadge.type);
+      badge.setAttribute('hide-state-icon', true);
+      badge.setAttribute('slot', 'tag');
+      badge.textContent = item.node.statusBadge.label;
+      el.appendChild(badge);
+      el.setAttribute('text', `${item.label} [${item.node.statusBadge.label}]`);
+      el.setAttribute('tooltip', `${item.tooltip} [${item.node.statusBadge.label}]`);
+    }
+    el._luigiItem = item;
+    if (item.selected) el.setAttribute('selected', '');
+    frag.appendChild(el);
+  } else if (item.category) {
+    if (item.category?.nodes?.length > 0) {
+      const el = document.createElement('ui5-side-navigation-item');
+      el.setAttribute('text', item.category.label);
+      el.setAttribute('tooltip', item.category.tooltip);
+      if (item.category.icon) el.setAttribute('icon', item.category.icon);
+      el.setAttribute('category-uid', leftNavData.basePath + ':' + item.category.id);
+      if (readExpandedState(leftNavData.basePath + ':' + item.category.id)) {
+        el.setAttribute('expanded', '');
+      }
+
+      item.category.nodes.forEach((nodeWrapper) => {
+        if (nodeWrapper.label) {
+          const sub = document.createElement('ui5-side-navigation-sub-item');
+          sub.setAttribute('text', nodeWrapper.label);
+          sub.setAttribute('tooltip', nodeWrapper.tooltip);
+          if (nodeWrapper.icon) sub.setAttribute('icon', nodeWrapper.icon);
+          sub._luigiItem = nodeWrapper;
+          if (nodeWrapper.externalLink?.url) {
+            sub.setAttribute('href', nodeWrapper.externalLink.url);
+            sub.setAttribute('target', nodeWrapper.externalLink.sameWindow ? '_self' : '_blank');
+          } else {
+            sub.setAttribute('luigi-route', leftNavData.basePath + '/' + nodeWrapper.node.pathSegment);
+            if (nodeWrapper.href) sub.setAttribute('href', nodeWrapper.href);
+          }
+          if (nodeWrapper.selected) sub.setAttribute('selected', '');
+          el.appendChild(sub);
+        }
+      });
+
+      frag.appendChild(el);
+    }
+  }
+
+  return frag;
+}
+
+function handleOpenAlerts() {
+  const alerts = document.querySelectorAll('ui5-message-strip');
+
+  if (!alerts?.length) return;
+
+  alerts.forEach((alert) => {
+    const openFromClient = alert.getAttribute('openfromclient');
+    const ttl = alert.getAttribute('ttl');
+
+    if (alert && openFromClient === 'false' && ttl !== 'undefined') {
+      let ttlValue = Number(ttl);
+
+      if (ttlValue === 0) {
+        // TTL value dropped down to 0, remove this alert
+        alert.dispatchEvent(new Event('close'));
+      } else {
+        // TTL is not 0, reduce it
+        ttlValue--;
+        alert.setAttribute('ttl', ttlValue);
+      }
+    }
+  });
+}
+
+function updateOverlays() {
+  const alertContainer = document.querySelector('.luigi-alert--overlay');
+  alertContainer.hidePopover();
+  alertContainer.showPopover();
+
+  // TODO: confirmation modal ...
+}
+
+function renderSearchResults(searchResultItems, searchQuery, isCentered, onShowResultCallback) {
+  const searchResult = document.querySelector('#searchresult-popover');
+  const searchList = searchResult?.querySelector('.lui-search-results');
+
+  if (!searchList && onShowResultCallback && typeof onShowResultCallback === 'function') {
+    searchResult.innerHTML = '';
+    onShowResultCallback(searchResult);
+  } else {
+    searchList.innerHTML = '';
+
+    if (searchResultItems?.length) {
+      searchList.setAttribute('selection-mode', 'Single');
+      searchResultItems.forEach((item, index) => {
+        const searchItem = document.createElement('ui5-li');
+
+        if (searchResultItems.length > 1) {
+          if (index === 0) {
+            searchItem.classList.add('lui-search-result--first');
+          }
+
+          if (index === searchResultItems.length - 1) {
+            searchItem.classList.add('lui-search-result--last');
+          }
+        }
+
+        searchItem.setAttribute('icon', 'navigation-right-arrow');
+        searchItem.setAttribute('icon-end', true);
+        searchItem.setAttribute('description', item.description);
+        searchItem.setAttribute('path-data', JSON.stringify(item.pathObject));
+        searchItem.innerText = item.label;
+        searchList.appendChild(searchItem);
+      });
+    } else {
+      const searchItem = document.createElement('ui5-li');
+
+      searchItem.innerText = `No results found for query '${searchQuery}'`;
+      searchList.setAttribute('selection-mode', 'None');
+      searchList.appendChild(searchItem);
+    }
+  }
+
+  searchResult.opener = 'searchresult-opener';
+  searchResult.open = true;
+}
+
+/** @type {LuigiConnector} */
+const connector = {
+  renderMainLayout: () => {
+    if (!document.getElementById('app')) {
+      const appRoot = document.createElement('ui5-navigation-layout');
+      appRoot.id = 'app';
+      // appRoot.classList.add('tool-layout');
+      appRoot.innerHTML = `
+        <ui5-shellbar slot="header"></ui5-shellbar>
+        <ui5-side-navigation slot="sideContent"></ui5-side-navigation>
+        <div class="content-wrapper">
+          <ui5-tabcontainer collapsed fixed></ui5-tabcontainer>
+          <div class="content">
+            <div class="breadcrumb-wrapper"></div>
+            <ui5-busy-indicator class="luigi-busy-indicator"></ui5-busy-indicator>
+          </div>
+        </div>
+        <div class="luigi-alert--overlay" popover="manual"><div>
+        <div class="luigi-confirmation-modal--overlay"><div>
+      `;
+      document.body.appendChild(appRoot);
+    }
+  },
+
+  renderTopNav: (topNavData) => {
+    const shellbar = document.querySelector('ui5-navigation-layout > ui5-shellbar');
+    let lastSelectedItem;
+
+    if (topNavData.productSwitcher) {
+      shellbar.removeEventListener('product-switch-click', onProductSwitcherClick);
+      shellbar.setAttribute('show-product-switch', '');
+      renderProductSwitcherItems(topNavData.productSwitcher);
+      shellbar.addEventListener('product-switch-click', onProductSwitcherClick);
+      [...document.querySelectorAll('ui5-toggle-button')].forEach((el) => {
+        el.addEventListener('click', (event) => {
+          const toggleButton = event.target;
+          toggleButton.icon = toggleButton.pressed ? 'sap-icon://da-2' : 'sap-icon://da';
+        });
+      });
+    }
+
+    if (!shellbar._lastTopNavData) {
+      shellbar.setAttribute('primary-title', topNavData.appTitle);
+      // initial rendering
+      let html = '';
+      html += '<ui5-button icon="menu" slot="startButton" id="toggle"></ui5-button>';
+      if (topNavData.logo) {
+        html += `<img
+            slot="logo"
+            src="${topNavData.logo}"
+          />`;
+      }
+      if (!shellbar._logoEL) {
+        shellbar._logoEL = () => {
+          globalThis.Luigi.navigation().navigate('/');
+        };
+        shellbar.addEventListener('logo-click', shellbar._logoEL);
+      }
+
+      shellbar.innerHTML = html;
+
+      if (topNavData.globalSearch) {
+        const globalSearch = topNavData.globalSearch;
+        const provider = globalSearch.searchProvider || {};
+        const searchInput = document.createElement('ui5-input');
+        const isCustomSearchRenderer =
+          provider.customSearchResultRenderer && typeof provider.customSearchResultRenderer === 'function';
+        let currentResultItem;
+
+        searchInput.classList.add('lui-search-field');
+        searchInput.setAttribute('id', 'searchresult-opener');
+        searchInput.setAttribute('slot', 'searchField');
+
+        if (globalSearch.searchFieldCentered) {
+          searchInput.setAttribute('placeholder', 'searchFieldCentered enabled');
+          shellbar.addEventListener('search-button-click', () => {
+            if (provider.onSearchBtnClick && typeof provider.onSearchBtnClick === 'function') {
+              provider.onSearchBtnClick();
+            }
+          });
+        } else {
+          searchInput.setAttribute('placeholder', provider.inputPlaceholder || 'Type to search');
+        }
+
+        shellbar.appendChild(searchInput);
+        document.querySelector('ui5-navigation-layout > #searchresult-popover')?.remove();
+
+        const searchResultList = document.createElement('ui5-list');
+        const searchResultPopover = document.createElement('ui5-popover');
+
+        searchResultList.classList.add('lui-search-results');
+        searchResultList.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape' && typeof provider.onEscape === 'function') {
+            provider.onEscape();
+            searchInput.focus();
+          } else {
+            [...searchResultList.querySelectorAll('ui5-li')].forEach((item) => {
+              item.classList.remove('is-focused');
+              item.removeAttribute('aria-selected');
+            });
+
+            document.activeElement.setAttribute('aria-selected', true);
+
+            if (event.key === 'ArrowUp' && currentResultItem === 'first') {
+              const lastItem = searchResultList.querySelector('ui5-li:last-child');
+
+              document.activeElement.removeAttribute('aria-selected');
+              lastItem?.classList?.add('is-focused');
+              lastItem?.setAttribute('aria-selected', true);
+              lastItem?.shadowRoot?.children[0]?.focus();
+            }
+
+            if (event.key === 'ArrowDown' && currentResultItem === 'last') {
+              const firstItem = searchResultList.querySelector('ui5-li:first-child');
+
+              document.activeElement.removeAttribute('aria-selected');
+              firstItem?.classList?.add('is-focused');
+              firstItem?.setAttribute('aria-selected', true);
+              firstItem?.shadowRoot?.children[0]?.focus();
+            }
+
+            if (document.activeElement.classList.contains('lui-search-result--first')) {
+              currentResultItem = 'first';
+            } else if (document.activeElement.classList.contains('lui-search-result--last')) {
+              currentResultItem = 'last';
+            } else {
+              currentResultItem = 'default';
+            }
+          }
+        });
+        searchResultList.addEventListener('item-click', (event) => {
+          if (provider.onSearchResultItemSelected && typeof provider.onSearchResultItemSelected === 'function') {
+            const searchItem = event.detail.item;
+            const pathData = JSON.parse(searchItem?.getAttribute('path-data')) || {};
+
+            provider.onSearchResultItemSelected(pathData);
+          }
+        });
+
+        searchResultPopover.setAttribute('id', 'searchresult-popover');
+        searchResultPopover.setAttribute('placement', 'Bottom');
+
+        if (!isCustomSearchRenderer) {
+          searchResultPopover.setAttribute('header-text', 'Search results');
+          searchResultPopover.appendChild(searchResultList);
+        } else {
+          searchResultPopover.setAttribute('header-text', 'Custom search results');
+        }
+
+        document.querySelector('ui5-navigation-layout').appendChild(searchResultPopover);
+        searchInput.addEventListener('keyup', (event) => {
+          if (!globalSearch.disableInputHandlers) {
+            if (event.key === 'Enter' && typeof provider.onEnter === 'function') {
+              provider.onEnter();
+            } else if (event.key === 'Escape' && typeof provider.onEscape === 'function') {
+              provider.onEscape();
+            } else if (event.key === 'ArrowDown') {
+              let firstItem;
+
+              if (globalSearch.searchFieldCentered) {
+                firstItem = searchResultPopover.querySelector('ol li:first-child');
+              } else {
+                firstItem = searchResultList.querySelector('ui5-li:first-child');
+              }
+
+              currentResultItem = 'first';
+              firstItem?.classList?.add('is-focused');
+              firstItem?.setAttribute('aria-selected', true);
+              setTimeout(() => {
+                firstItem?.shadowRoot?.children[0]?.focus();
+              }, 1);
+            }
+          } else {
+            console.warn('GlobalSearch is not available.');
+          }
+        });
+
+        const debounceFn = function (fn, delay) {
+          let inputTimer;
+
+          return function (...args) {
+            clearTimeout(inputTimer);
+            inputTimer = setTimeout(() => {
+              fn.apply(this, args);
+            }, delay);
+          };
+        };
+
+        searchInput.addEventListener(
+          'input',
+          debounceFn(() => {
+            if (!globalSearch.disableInputHandlers) {
+              const searchQuery = searchInput.value.trim() || '';
+
+              if (searchQuery?.length && typeof provider.onInput === 'function') {
+                globalThis.Luigi.globalSearch().setSearchString(searchQuery);
+                setTimeout(() => {
+                  searchInput.focus();
+                }, 1);
+              } else {
+                globalThis.Luigi.globalSearch().closeSearchResult();
+              }
+            } else {
+              console.warn('GlobalSearch is not available.');
+            }
+          }, 400)
+        );
+      }
+
+      if (topNavData.contextSwitcher) {
+        const data = { ...topNavData.contextSwitcher };
+        const wrapper = data.config.customOptionsRenderer ? 'select' : 'ui5-combobox';
+        const switcher = document.createElement(wrapper);
+        const createSwitcherOption = function (item, type) {
+          let label = item.label;
+          let option;
+
+          if (!label && data.config.fallbackLabelResolver) {
+            label = data.config.fallbackLabelResolver(item.id);
+          }
+
+          if (data.config.customOptionsRenderer) {
+            if (data.selectedOption?.link === item.link && data.config.customSelectedOptionRenderer) {
+              option = data.config.customSelectedOptionRenderer(data.selectedOption);
+            } else {
+              option = data.config.customOptionsRenderer(item, label === data.selectedLabel);
+            }
+          } else {
+            const link = data.config.preserveSubPathOnSwitch && type === 'option' ? item.linkFromPath : item.link;
+
+            option = document.createElement('ui5-cb-item');
+            option.setAttribute('text', label);
+            option.setAttribute('value', link);
+          }
+
+          option.setAttribute('type', type);
+
+          return option;
+        };
+
+        switcher.classList.add('lui-context-switcher');
+        switcher.setAttribute('name', 'context-switcher');
+        switcher.setAttribute('slot', 'content');
+
+        if (data.config.defaultLabel) {
+          if (data.config.customOptionsRenderer) {
+            const option = document.createElement('option');
+
+            option.setAttribute('value', '');
+            option.textContent = data.config.defaultLabel;
+
+            switcher.prepend(option);
+          } else {
+            switcher.setAttribute('placeholder', data.config.defaultLabel);
+          }
+        }
+
+        if (data.selectedOption) {
+          let label = data.selectedOption.label;
+
+          if (!label && data.config.fallbackLabelResolver) {
+            label = data.config.fallbackLabelResolver(data.selectedOption.id);
+          }
+
+          switcher.setAttribute('selected-value', data.selectedOption.link);
+          switcher.setAttribute('value', label);
+        } else {
+          switcher.removeAttribute('selected-value');
+          switcher.removeAttribute('value');
+
+          if (data.config.customOptionsRenderer) {
+            switcher.value = '';
+          }
+        }
+
+        const eventType = data.config.customOptionsRenderer ? 'change' : 'selection-change';
+
+        switcher.addEventListener(eventType, function (event) {
+          let selectedValue;
+          let selectedType;
+
+          if (eventType === 'selection-change') {
+            selectedValue = event.detail?.item?.getAttribute('value') || '';
+            selectedType = event.detail?.item?.getAttribute('type') || undefined;
+          } else {
+            selectedValue = event.target.value || '';
+
+            if (event.target.children?.length) {
+              const selectedOption = [...event.target.children].find((child) => child.selected);
+
+              selectedType = selectedOption ? selectedOption?.attributes?.type?.value : undefined;
+            }
+          }
+
+          if (data.switcherChange) {
+            data.switcherChange(selectedValue, selectedType);
+          } else {
+            console.warn('There is no context switcher change handler defined in configuration.');
+          }
+        });
+
+        if (data.actions?.length) {
+          const filteredActions = data.actions.filter((action) => action.position !== 'bottom');
+
+          filteredActions.forEach((action, index) => {
+            const item = createSwitcherOption(action, 'action');
+
+            if (index === filteredActions.length - 1) {
+              item.classList.add('lui-switcher-item--top-separator');
+            }
+
+            switcher.appendChild(item);
+          });
+        }
+
+        if (data.options?.length) {
+          data.options.forEach((option) => {
+            const item = createSwitcherOption(option, 'option');
+
+            switcher.appendChild(item);
+          });
+        }
+
+        if (data.actions?.length) {
+          const filteredActions = data.actions.filter((action) => action.position === 'bottom');
+
+          filteredActions.forEach((action, index) => {
+            const item = createSwitcherOption(action, 'action');
+
+            if (index === 0) {
+              item.classList.add('lui-switcher-item--bottom-separator');
+            }
+
+            switcher.appendChild(item);
+          });
+        }
+
+        shellbar.appendChild(switcher);
+      }
+
+      if (topNavData.profile) {
+        if ((topNavData.profile.authEnabled && topNavData.profile.signedIn) || !topNavData.profile.authEnabled) {
+          const ava = document.createElement('ui5-avatar');
+          ava.setAttribute('slot', 'profile');
+          ava.setAttribute('shape', 'Circle');
+          ava.setAttribute('size', 'M');
+          ava.setAttribute('color-scheme', 'Accent7');
+          renderProfilePopover(topNavData.profile, ava);
+          shellbar.appendChild(ava);
+          shellbar.addEventListener('profile-click', onProfileClick);
+        } else if (topNavData.profile.authEnabled && !topNavData.profile.signedIn) {
+          const loginBtn = document.createElement('div');
+          loginBtn.innerHTML = 'Sign In';
+          loginBtn.setAttribute('slot', 'profile');
+          shellbar.appendChild(loginBtn);
+          shellbar.addEventListener('profile-click', () => {
+            globalThis.Luigi.auth().login();
+          });
+        }
+      }
+
+      (topNavData.topNodes || []).forEach((item) => {
+        addShellbarItem(shellbar, item, topNavData.navClick);
+      });
+
+      if (topNavData.appSwitcher?.items) {
+        if (topNavData.appSwitcher.showMainAppEntry) {
+          this.renderAppSwitcherItems(shellbar, topNavData.appSwitcher, topNavData.appSwitcher.items[0]?.link);
+        } else {
+          this.renderAppSwitcherItems(shellbar, topNavData.appSwitcher);
+        }
+
+        if (!topNavData.appSwitcher.itemRenderer) {
+          shellbar.addEventListener('menu-item-click', (event) => {
+            const clickedItem = event.detail.item;
+            const link = clickedItem.getAttribute('luigi-route');
+            if (link) {
+              topNavData.appTitle = clickedItem.getAttribute('text');
+              shellbar.setAttribute('primary-title', topNavData.appTitle);
+              // display previous entry, if there
+              lastSelectedItem = link;
+              globalThis.Luigi.navigation().navigate(link);
+              this.renderAppSwitcherItems(shellbar, topNavData.appSwitcher, lastSelectedItem);
+            }
+          });
+        }
+      }
+
+      // ...
+    } else {
+      // partial update
+      shellbar.setAttribute('primary-title', topNavData.appTitle);
+      if (topNavData.logo !== shellbar._lastTopNavData.logo) {
+        shellbar.querySelector('img[slot=logo]').setAttribute('src', topNavData.logo);
+      }
+      if (topNavData.topNodes !== shellbar._lastTopNavData.topNodes) {
+        shellbar.querySelectorAll('ui5-shellbar-item').forEach((item) => item.remove());
+        (topNavData.topNodes || []).forEach((item) => {
+          addShellbarItem(shellbar, item, topNavData.navClick);
+        });
+      }
+      if (topNavData.contextSwitcher) {
+        const data = { ...topNavData.contextSwitcher };
+        const switcher = shellbar.querySelector('.lui-context-switcher');
+        if (!switcher) {
+          return;
+        }
+        if (data.selectedOption) {
+          const link = data.selectedOption.link;
+          let label = data.selectedOption.label;
+          if (!label && data.config.fallbackLabelResolver) {
+            label = data.config.fallbackLabelResolver(data.selectedOption.id);
+          }
+          if (data.config.customSelectedOptionRenderer) {
+            [...switcher.children].forEach((option) => {
+              if (option.value === link) {
+                const newOption = data.config.customSelectedOptionRenderer(data.selectedOption);
+                option.replaceWith(newOption);
+              } else {
+                option.classList.remove('is-selected');
+              }
+            });
+          }
+          switcher.setAttribute('selected-value', link);
+          switcher.setAttribute('value', label);
+        } else {
+          switcher.removeAttribute('selected-value');
+          switcher.removeAttribute('value');
+          if (data.config.customSelectedOptionRenderer) {
+            [...switcher.children].forEach((option) => {
+              option.classList.remove('is-selected');
+            });
+          }
+          if (data.config.customOptionsRenderer) {
+            switcher.value = '';
+          }
+        }
+      }
+    }
+    shellbar._lastTopNavData = topNavData;
+  },
+  renderLeftNav: (leftNavData) => {
+    const sidenav = document.querySelector('ui5-side-navigation');
+    const burger = document.getElementById('toggle');
+
+    if (sidenav && burger) {
+      if (!burger._clickListener) {
+        burger._clickListener = () => {
+          sidenav.toggleAttribute('collapsed');
+        };
+        burger.addEventListener('click', burger._clickListener);
+      }
+      sidenav._leftNavData = leftNavData;
+      if (!sidenav._selectionChangeListener) {
+        sidenav._selectionChangeListener = true;
+        // Normal navigation goes through UI5's `selection-change`.
+        sidenav.addEventListener('selection-change', async (event) => {
+          event.preventDefault();
+          const selectedItem = event.detail.item;
+          const luigiItem = selectedItem._luigiItem;
+          if (!luigiItem) return;
+          try {
+            await sidenav._leftNavData.navClick(luigiItem);
+          } catch {
+            // navigation was cancelled (e.g. unsaved changes dismissed)
+          }
+        });
+        // UI5's `selection-change` only fires when the selection actually changes, so a re-click on
+        // the already-selected item is silent.
+        sidenav.addEventListener('click', (event) => {
+          const detail = event.detail || {};
+          if (detail.ctrlKey || detail.metaKey || detail.shiftKey) return;
+          const navItemEl = event
+            .composedPath()
+            .find(
+              (el) =>
+                el.nodeType === 1 &&
+                (el.localName === 'ui5-side-navigation-item' || el.localName === 'ui5-side-navigation-sub-item') &&
+                el._luigiItem
+            );
+          const luigiItem = navItemEl?._luigiItem;
+          if (!luigiItem || !luigiItem.selected || luigiItem.externalLink?.url) return;
+          Promise.resolve(sidenav._leftNavData.navClick(luigiItem)).catch(() => {
+            // navigation was cancelled (e.g. unsaved changes dismissed)
+          });
+        });
+      }
+      sidenav.innerHTML = '';
+      if (leftNavData?.selectedNode?.hideSideNav) {
+        sidenav.setAttribute('style', 'display: none');
+        burger.setAttribute('style', 'display: none');
+      } else {
+        sidenav.removeAttribute('style');
+        burger.removeAttribute('style');
+      }
+      const containerFrag = document.createDocumentFragment();
+      if (leftNavData.items) {
+        leftNavData.items.forEach((item) => {
+          if (item.node || (item.category && !item.category.isGroup)) {
+            containerFrag.appendChild(renderNodeOrCategory(item, leftNavData));
+          } else if (item.category && item.category.isGroup) {
+            const group = document.createElement('ui5-side-navigation-group');
+            group.setAttribute('text', item.category.label);
+            group.setAttribute('tooltip', item.category.tooltip);
+            group.setAttribute('category-uid', leftNavData.basePath + ':' + item.category.id);
+            if (readExpandedState(leftNavData.basePath + ':' + item.category.id)) {
+              group.setAttribute('expanded', '');
+            }
+
+            item.category.nodes.forEach((subitem) => {
+              group.appendChild(renderNodeOrCategory(subitem, leftNavData));
+            });
+
+            containerFrag.appendChild(group);
+          }
+        });
+      }
+
+      document.body.classList.toggle('left-nav-hidden', !(leftNavData.items?.length > 0));
+      sidenav.appendChild(containerFrag);
+
+      if (!sidenav._observer) {
+        sidenav._observer = new MutationObserver((mutations) => {
+          mutations.forEach(function (mutation) {
+            if (mutation.type === 'attributes') {
+              const uid = mutation.target.getAttribute('category-uid');
+              storeExpandedState(uid, mutation.target.hasAttribute('expanded'));
+            }
+          });
+        });
+
+        sidenav._observer.observe(sidenav, {
+          attributes: true,
+          subtree: true,
+          attributeFilter: ['expanded']
+        });
+      }
+    }
+  },
+  getContainerWrapper: () => {
+    return document.querySelector('ui5-navigation-layout > .content-wrapper > .content');
+  },
+  renderDrawer: (lc, drawerSettings, onCloseCallback, onCloseRequest) => {
+    drawerSettings.isDrawer = true;
+    connector.renderModal(lc, drawerSettings, onCloseCallback, onCloseRequest);
+  },
+  renderModal: (lc, modalSettings, onCloseCallback, onCloseRequest) => {
+    const dialog = document.createElement('ui5-dialog');
+    let headerTitle;
+    dialog.classList.add('lui-dialog');
+    if (modalSettings.isDrawer) {
+      dialog.classList.add('lui-drawer');
+      headerTitle = modalSettings?.header?.title || '';
+    } else {
+      dialog.classList.add('lui-modal');
+      headerTitle = modalSettings?.title || '';
+    }
+    dialog.setAttribute('header-text', headerTitle);
+    setDialogSize(dialog, modalSettings);
+
+    const loader = document.createElement('ui5-busy-indicator');
+    loader.classList.add('lui-dialog-busy-indicator');
+
+    const bar = document.createElement('ui5-bar');
+    bar.setAttribute('slot', 'header');
+    bar.innerHTML = `<ui5-title class="lui-modal-title" level="H5" slot="startContent">${headerTitle}</ui5-title>`;
+
+    const btn = document.createElement('ui5-button');
+    btn.innerHTML = 'X';
+    btn.setAttribute('data-testid', modalSettings.closebtn_data_testid || 'lui-modal-index-0');
+    btn.onclick = (e) => {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      if (onCloseCallback) {
+        onCloseCallback();
+      }
+    };
+    btn.setAttribute('slot', 'endContent');
+    bar.appendChild(btn);
+
+    dialog.appendChild(bar);
+    dialog.appendChild(loader);
+    dialog.appendChild(lc);
+    document.body.appendChild(dialog);
+
+    if (onCloseRequest) {
+      onCloseRequest().then(() => {
+        dialog.open = false;
+        document.body.removeChild(dialog);
+      });
+    }
+
+    dialog.open = true;
+    updateOverlays();
+  },
+
+  updateModalSettings: (modalSettings) => {
+    console.log('modalSettings', modalSettings);
+    const dialogs = document.querySelectorAll('ui5-dialog.lui-modal');
+    if (!dialogs) return;
+    dialogs.forEach((dialog) => {
+      if (modalSettings?.title) {
+        dialog.querySelector('.lui-modal-title').innerText = modalSettings.title;
+      }
+      setDialogSize(dialog, modalSettings);
+    });
+  },
+
+  renderTabNav: (tabNavData) => {
+    const tabcontainer = document.querySelector('ui5-tabcontainer');
+    let tabHeaderContainer = document.querySelector('.lui-tab-header');
+    tabcontainer?.setAttribute('no-auto-selection', '');
+    if (tabcontainer) tabcontainer.innerHTML = '';
+
+    // Handle tab header web component
+    if (tabNavData.headerNode) {
+      if (!tabHeaderContainer) {
+        tabHeaderContainer = document.createElement('div');
+        tabHeaderContainer.className = 'lui-tab-header';
+        tabcontainer?.parentElement?.insertBefore(tabHeaderContainer, tabcontainer);
+      }
+      tabHeaderContainer.classList.add('lui-tab-header--active');
+      const existingLc = tabHeaderContainer.querySelector('luigi-container');
+      if (existingLc && existingLc.getAttribute('viewurl') === tabNavData.headerNode.viewUrl) {
+        // Update context on existing container
+        existingLc.context = tabNavData.headerNode.context || {};
+      } else {
+        // Create new container
+        tabHeaderContainer.innerHTML = '';
+        const lc = document.createElement('luigi-container');
+        lc.setAttribute('viewurl', tabNavData.headerNode.viewUrl);
+        lc.setAttribute('webcomponent', 'true');
+        lc.setAttribute('skipInitCheck', 'true');
+        lc.setAttribute('noShadow', 'true');
+        if (tabNavData.headerNode.context) {
+          lc.context = tabNavData.headerNode.context;
+        }
+        tabHeaderContainer.appendChild(lc);
+      }
+    } else if (tabHeaderContainer) {
+      tabHeaderContainer.innerHTML = '';
+      tabHeaderContainer.classList.remove('lui-tab-header--active');
+    }
+
+    if (Object.keys(tabNavData).length === 0 || !tabNavData.items?.length) {
+      document.querySelector('.content-wrapper > ui5-tabcontainer')?.classList.add('ui5-tabcontainer-hidden');
+      return;
+    }
+    document.querySelector('.content-wrapper > ui5-tabcontainer')?.classList.remove('ui5-tabcontainer-hidden');
+    tabcontainer?.addEventListener('tab-select', (event) => {
+      const customEvent = event;
+      const selectedTab = customEvent.detail.tab;
+      if (selectedTab.getAttribute('luigi-route'))
+        globalThis.Luigi.navigation().navigate(selectedTab.getAttribute('luigi-route'));
+    });
+    tabNavData.items.forEach((item) => {
+      const tab = document.createElement('ui5-tab');
+      if (item.node) {
+        tab.setAttribute('text', `${item.label}`);
+        tab.setAttribute('luigi-route', tabNavData.basePath + '/' + item.node.pathSegment);
+        item.selected ? item.selected && tab.setAttribute('selected', '') : '';
+      } else if (item.category) {
+        tab.setAttribute('text', item.category.label || item.category.id);
+
+        const dropdownNodes = item.category.nodes || [];
+
+        const targetNode = dropdownNodes.find((subItem) => subItem.navigateOnClick);
+
+        if (targetNode?.node?.pathSegment) {
+          tab.setAttribute('luigi-route', tabNavData.basePath + '/' + targetNode.node.pathSegment);
+          if (targetNode.selected) {
+            tab.setAttribute('selected', '');
+          }
+          tab.appendChild(document.createTextNode(item.category.label || item.category.id));
+        }
+
+        dropdownNodes.forEach((subItem) => {
+          if (subItem.navigateOnClick && !subItem.label) {
+            return;
+          }
+          const subTab = document.createElement('ui5-tab');
+          subTab.setAttribute('slot', 'items');
+          subTab.setAttribute('text', subItem.label || subItem.node?.pathSegment || '');
+          subItem.selected ? subItem.selected && subTab.setAttribute('selected', '') : '';
+          subTab.setAttribute('luigi-route', tabNavData.basePath + '/' + subItem.node?.pathSegment);
+          tab.appendChild(subTab);
+        });
+      }
+      tabcontainer?.appendChild(tab);
+    });
+  },
+
+  renderBreadcrumbs: (breadcrumbData) => {
+    const wrapper = document.querySelector('.breadcrumb-wrapper');
+
+    if (wrapper && breadcrumbData?.clearBeforeRender) {
+      wrapper.innerHTML = '';
+    }
+
+    if (!wrapper || !breadcrumbData?.items?.length || !breadcrumbData?.renderer) {
+      return;
+    }
+
+    const selectedNode = breadcrumbData.selectedNode;
+
+    breadcrumbData.renderer(wrapper, breadcrumbData.items, (item) => {
+      if (item.node.label !== selectedNode.label && item.node.pathSegment !== selectedNode.pathSegment) {
+        globalThis.Luigi.navigation().navigate(item.route);
+      }
+    });
+  },
+
+  renderAlert(alertSettings, alertHandler) {
+    const alertContainer = document.querySelector('.luigi-alert--overlay');
+    const alertTypeMap = {
+      info: 'Information',
+      success: 'Positive',
+      warning: 'Critical',
+      error: 'Negative'
+    };
+    const messageStrip = document.createElement('ui5-message-strip');
+    messageStrip.setAttribute('design', `${alertTypeMap[alertSettings.type]}`);
+    messageStrip.setAttribute('openfromclient', `${!!alertHandler.openFromClient}`);
+    messageStrip.setAttribute('ttl', `${alertSettings.ttl || undefined}`);
+    messageStrip.innerHTML = replacePlaceholdersWithUI5Links(alertSettings.text, alertSettings.links);
+
+    alertContainer?.appendChild(messageStrip);
+    const luigiAlertLinks = messageStrip.querySelectorAll('[luigiAlertLink]');
+    luigiAlertLinks?.forEach((luigiAlertLink) => {
+      luigiAlertLink.addEventListener('click', (event) => {
+        event.preventDefault();
+        const linkKey = luigiAlertLink.getAttribute('luigiAlertLink');
+        alertHandler.link(linkKey) && alertContainer.removeChild(messageStrip);
+      });
+    });
+    messageStrip.addEventListener('close', () => {
+      alertHandler.close(true);
+      alertContainer.removeChild(messageStrip);
+    });
+
+    if (alertSettings.closeAfter) {
+      setTimeout(() => {
+        alertHandler.close(true);
+        if (messageStrip.parentElement === alertContainer) {
+          alertContainer.removeChild(messageStrip);
+        }
+      }, alertSettings.closeAfter);
+    }
+
+    updateOverlays();
+  },
+  renderConfirmationModal(settings, handler) {
+    const iconMapping = {
+      confirmation: 'None',
+      information: 'Information',
+      warning: 'Negative',
+      error: 'Critical',
+      success: 'Positive'
+    };
+
+    const dialog = document.createElement('ui5-dialog');
+    dialog.classList.add('lui-confirmation-modal');
+    dialog.setAttribute('header-text', settings?.header);
+    dialog.setAttribute('state', `${iconMapping[settings.icon || 'confirmation']}`);
+
+    const text = document.createElement('p');
+    text.innerHTML = settings.body || '';
+    dialog.appendChild(text);
+
+    const ui5Toolbar = document.createElement('ui5-toolbar');
+    ui5Toolbar.setAttribute('slot', 'footer');
+    if (settings.buttonConfirm !== false) {
+      const ui5ToolBarBtnConfirm = document.createElement('ui5-toolbar-button');
+      settings.buttonConfirm && ui5ToolBarBtnConfirm.setAttribute('text', settings.buttonConfirm);
+      ui5ToolBarBtnConfirm.setAttribute('design', 'Emphasized');
+      ui5ToolBarBtnConfirm.addEventListener('click', () => {
+        handler.confirm();
+        document.body.removeChild(dialog);
+      });
+      ui5Toolbar.appendChild(ui5ToolBarBtnConfirm);
+    }
+    const ui5ToolBarBtnDismiss = document.createElement('ui5-toolbar-button');
+    settings.buttonDismiss && ui5ToolBarBtnDismiss.setAttribute('text', settings.buttonDismiss);
+    if (settings.buttonConfirm === false) {
+      ui5ToolBarBtnDismiss.setAttribute('design', 'Emphasized');
+    }
+    ui5ToolBarBtnDismiss.addEventListener('click', () => {
+      handler.dismiss();
+      document.body.removeChild(dialog);
+    });
+    ui5Toolbar.appendChild(ui5ToolBarBtnDismiss);
+    dialog.appendChild(ui5Toolbar);
+    document.body.appendChild(dialog);
+    dialog.open = true;
+  },
+
+  collapseLeftSideNav: (state) => {
+    const sidenav = document.querySelector('ui5-side-navigation');
+
+    if (sidenav) {
+      if (state === true) {
+        sidenav.setAttribute('collapsed', 'true');
+      } else {
+        sidenav.removeAttribute('collapsed');
+      }
+    }
+  },
+
+  openUserSettings: async (settings, userSettingData, previousUserSettings, lc) => {
+    const storedUserSettings = previousUserSettings ? { ...previousUserSettings } : {};
+
+    function el(tag, attrs, children) {
+      const node = document.createElement(tag);
+      if (attrs) {
+        Object.entries(attrs).forEach(([k, v]) => {
+          if (v === true) node.setAttribute(k, '');
+          else if (v !== false && v != null) node.setAttribute(k, v);
+        });
+      }
+      if (children) {
+        (Array.isArray(children) ? children : [children]).forEach((child) => {
+          if (typeof child === 'string') node.appendChild(document.createTextNode(child));
+          else if (child) node.appendChild(child);
+        });
+      }
+      return node;
+    }
+
+    function renderSettingControl(groupKey, settingKey, settingDef, currentValue) {
+      const container = document.createDocumentFragment();
+      const labelEl = el(
+        'ui5-label',
+        { for: `us-${groupKey}-${settingKey}`, 'show-colon': true },
+        settingDef.label || settingKey
+      );
+      container.appendChild(labelEl);
+
+      if (settingDef.type === 'enum' && settingDef.options) {
+        const combobox = el('ui5-combobox', {
+          id: `us-${groupKey}-${settingKey}`,
+          placeholder: settingDef.placeholder || settingDef.label || settingKey,
+          value: currentValue || settingDef.options[0] || ''
+        });
+        settingDef.options.forEach((option) => {
+          combobox.appendChild(el('ui5-cb-item', { text: option }));
+        });
+        combobox.addEventListener('change', (e) => {
+          if (!storedUserSettings[groupKey]) storedUserSettings[groupKey] = {};
+          storedUserSettings[groupKey][settingKey] = e.target.value;
+        });
+        container.appendChild(combobox);
+      } else if (settingDef.type === 'boolean') {
+        const switchEl = el('ui5-switch', {
+          id: `us-${groupKey}-${settingKey}`,
+          checked: currentValue === true || currentValue === 'true' ? true : false
+        });
+        switchEl.addEventListener('change', (e) => {
+          if (!storedUserSettings[groupKey]) storedUserSettings[groupKey] = {};
+          storedUserSettings[groupKey][settingKey] = e.target.checked;
+        });
+        container.appendChild(switchEl);
+      } else {
+        const input = el('ui5-input', {
+          id: `us-${groupKey}-${settingKey}`,
+          placeholder: settingDef.placeholder || '',
+          value: currentValue || ''
+        });
+        input.addEventListener('change', (e) => {
+          if (!storedUserSettings[groupKey]) storedUserSettings[groupKey] = {};
+          storedUserSettings[groupKey][settingKey] = e.target.value;
+        });
+        container.appendChild(input);
+      }
+
+      return container;
+    }
+
+    async function renderSettingsGroup(groupKey, groupConfig, isFirst) {
+      const attrs = {
+        text: groupConfig.label || groupKey,
+        tooltip: groupConfig.title || groupConfig.label || groupKey,
+        'header-text': groupConfig.title || groupConfig.label || groupKey
+      };
+      if (groupConfig.icon) attrs.icon = groupConfig.icon;
+      if (isFirst) attrs.selected = true;
+
+      const groupStoredSettings = previousUserSettings?.[groupKey] || {};
+
+      let content;
+      if (groupConfig.viewUrl) {
+        const luigiContainer = await settings.renderMicroFrontendContainer(groupConfig, groupKey);
+        luigiContainer.style.width = '100%';
+        luigiContainer.style.height = '100%';
+        luigiContainer.style.minHeight = '300px';
+        content = luigiContainer;
+      } else if (groupConfig.settings) {
+        content = el('div', { class: 'luigi-usersettings-form' });
+        Object.entries(groupConfig.settings).forEach(([settingKey, settingDef]) => {
+          const currentValue = groupStoredSettings[settingKey];
+          content.appendChild(renderSettingControl(groupKey, settingKey, settingDef, currentValue));
+        });
+      } else {
+        content = el('ui5-text', null, 'No settings available.');
+      }
+
+      return el('ui5-user-settings-item', attrs, [content]);
+    }
+
+    // Build settings items from config
+    const settingsItems = [];
+    if (Array.isArray(userSettingData)) {
+      for (let index = 0; index < userSettingData.length; index++) {
+        const groupObj = userSettingData[index];
+        const groupKey = Object.keys(groupObj)[0];
+        const groupConfig = groupObj[groupKey];
+        settingsItems.push(await renderSettingsGroup(groupKey, groupConfig, index === 0));
+      }
+    }
+
+    // Assemble dialog
+    const dialog = el(
+      'ui5-user-settings-dialog',
+      {
+        id: 'luigi-user-settings',
+        'header-text': settings?.dialogHeader || 'Settings'
+      },
+      settingsItems
+    );
+
+    dialog.addEventListener('close', async () => {
+      settings.onCloseCallback(storedUserSettings, previousUserSettings);
+      if (dialog.parentElement) {
+        document.body.removeChild(dialog);
+      }
+      const profilePopover = document.getElementById('profile-popover');
+      if (profilePopover) {
+        profilePopover.open = false;
+      }
+    });
+
+    document.body.appendChild(dialog);
+    dialog.open = true;
+  },
+
+  closeUserSettings: () => {
+    const dialog = document.querySelector('#luigi-user-settings');
+
+    if (!dialog) {
+      return;
+    }
+
+    dialog.open = false;
+    if (dialog.parentElement) {
+      document.body.removeChild(dialog);
+    }
+  },
+
+  showLoadingIndicator: (parentNode) => {
+    const wrapper = parentNode ? parentNode : document;
+    const loadingIndicator = wrapper.querySelector('ui5-busy-indicator');
+
+    if (loadingIndicator) {
+      loadingIndicator.delay = 300;
+      loadingIndicator.active = true;
+    }
+  },
+
+  hideLoadingIndicator: (parentNode) => {
+    const wrapper = parentNode ? parentNode : document;
+    const loadingIndicator = wrapper.querySelector('ui5-busy-indicator');
+
+    if (loadingIndicator) {
+      loadingIndicator.active = false;
+    }
+  },
+
+  addBackdrop: () => {
+    document.body.classList.add('backdrop-visible');
+  },
+
+  removeBackdrop: () => {
+    document.body.classList.remove('backdrop-visible');
+  },
+
+  setDocumentTitle: (title) => {
+    if (title && title !== '') {
+      document.title = title;
+      globalThis.Luigi.ux().showAlert({
+        text: 'Document title has been updated successfully',
+        type: 'success'
+      });
+    } else {
+      globalThis.Luigi.ux().showAlert({
+        text: 'Document title cannot be updated with invalid string',
+        type: 'error'
+      });
+    }
+  },
+
+  setCurrentLocale: (locale) => {
+    globalThis.Luigi.ux().showAlert({
+      text: 'Current locale has been set to: ' + locale,
+      type: 'success'
+    });
+  },
+
+  getGlobalSearchHandler: () => ({
+    openSearchField: () => {
+      const shellBar = document.querySelector('ui5-navigation-layout > ui5-shellbar');
+      const searchBtn = shellBar.getSearchButtonDomRef().then((btn) => {
+        if (btn.getAttribute('aria-expanded') === 'false') {
+          btn.click();
+        }
+      });
+    },
+
+    closeSearchField: () => {
+      const shellBar = document.querySelector('ui5-navigation-layout > ui5-shellbar');
+      const searchBtn = shellBar.getSearchButtonDomRef().then((btn) => {
+        if (btn.getAttribute('aria-expanded') === 'true') {
+          btn.click();
+        }
+      });
+    },
+
+    clearSearchField: () => {
+      const shellBar = document.querySelector('ui5-navigation-layout > ui5-shellbar');
+      const searchInput = shellBar.querySelector('.lui-search-field');
+
+      if (searchInput) {
+        searchInput.value = '';
+      }
+    },
+
+    toggleSearch: (isSearchFieldVisible, onToggleCallback) => {
+      const shellBar = document.querySelector('ui5-navigation-layout > ui5-shellbar');
+      const searchBtn = shellBar.getSearchButtonDomRef().then((btn) => {
+        const searchInput = shellBar.querySelector('.lui-search-field');
+
+        btn?.click();
+
+        if (onToggleCallback && typeof onToggleCallback === 'function') {
+          onToggleCallback(searchInput);
+        }
+      });
+    },
+
+    showSearchResult: (searchResultItems, searchQuery, isCentered, onShowResultCallback) => {
+      renderSearchResults(searchResultItems, searchQuery, isCentered, onShowResultCallback);
+    },
+
+    closeSearchResult: () => {
+      const searchResult = document.querySelector('#searchresult-popover');
+      if (!searchResult) return;
+
+      const searchList = searchResult.querySelector('.lui-search-results');
+
+      if (searchList) {
+        searchList.innerHTML = '';
+      } else {
+        searchResult.innerHTML = '';
+      }
+
+      searchResult.open = false;
+    },
+
+    setSearchString: (searchString, onSetStringCallback) => {
+      const shellBar = document.querySelector('ui5-navigation-layout > ui5-shellbar');
+      const searchInput = shellBar.querySelector('.lui-search-field');
+
+      if (onSetStringCallback && typeof onSetStringCallback === 'function') {
+        onSetStringCallback(searchInput);
+      }
+    },
+
+    setSearchInputPlaceholder: (inputPlaceholder) => {
+      const shellBar = document.querySelector('ui5-navigation-layout > ui5-shellbar');
+      const searchInput = shellBar.querySelector('.lui-search-field');
+
+      if (searchInput) {
+        searchInput.setAttribute('placeholder', inputPlaceholder);
+      }
+    }
+  }),
+
+  showFatalError: (errorMsg) => {
+    var errorTextNode = document.createTextNode(errorMsg);
+    var fd_ui = document.createElement('div');
+    fd_ui.setAttribute('class', 'fd-ui');
+    fd_ui.setAttribute('style', 'text-align: center;');
+
+    var errorDiv = document.createElement('div');
+    errorDiv.setAttribute('class', 'fd-message-strip fd-message-strip--error');
+    errorDiv.setAttribute('style', 'max-width: 800px; display: inline-block; margin-top: 40px;');
+    errorDiv.appendChild(errorTextNode);
+
+    fd_ui.appendChild(errorDiv);
+    document.getElementById('app').appendChild(fd_ui);
+  },
+
+  getCoreAPISupportedElements: () => {
+    return {
+      getShellbarElement: () => {
+        return document.querySelector('ui5-navigation-layout > ui5-shellbar');
+      },
+      getShellbarActions: () => {
+        // This is a workaround to get the actions element of the shellbar, as there is no direct way to access it.
+        // The actions element is a shadow DOM element of the shellbar, so we need to access it through the shadow root.
+        // However, since the shadow root is closed, we cannot access it directly. Therefore, we need to use a workaround to access the actions element.
+        return document.querySelector('ui5-navigation-layout > ui5-shellbar');
+      },
+      getLuigiContainer: () => {
+        return document.querySelector('ui5-navigation-layout');
+      },
+      getNavFooterContainer: () => {
+        return null;
+      }
+    };
+  }
+};
+
+// eslint-disable-next-line no-undef
+Luigi.getEngine().bootstrap(connector);
+
+// handle custom events
+window.addEventListener(
+  'message',
+  (event) => {
+    if (event?.data?.msg !== 'custom') {
+      return;
+    }
+
+    if (event?.data?.data?.usersettings?.dialog) {
+      connector.openUserSettings({
+        size: 'm',
+        title: 'User Settings'
+      });
+    }
+
+    if (event?.data?.data?.title) {
+      globalThis.Luigi.ux().setDocumentTitle(event?.data?.data?.title);
+    }
+
+    if (event?.data?.data?.customTranslation) {
+      globalThis.Luigi.ux().showAlert({
+        text: globalThis.Luigi.i18n().getTranslation('luigi.confirmationModal.header'),
+        type: 'info'
+      });
+    }
+  },
+  false
+);
+
+window.addEventListener('popstate', () => {
+  handleOpenAlerts();
+});

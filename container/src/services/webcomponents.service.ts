@@ -79,7 +79,8 @@ export class WebComponentService {
    * @param data the data to be sent
    * @param callback the callback function to be called
    */
-  dispatchLuigiEvent(msg: string, data: object, callback?: () => void) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  dispatchLuigiEvent(msg: string, data: object, callback?: (arg?: any) => void) {
     this.containerService.dispatch(msg, this.thisComponent, data, callback);
   }
 
@@ -112,7 +113,7 @@ export class WebComponentService {
         let nodeParams = {};
 
         const linkManagerInstance = {
-          navigate: (route, settings = {}) => {
+          navigate: (route, settings = {}, callbackFn?: (val?: unknown) => void) => {
             const options = {
               fromContext,
               fromClosestContext,
@@ -121,10 +122,14 @@ export class WebComponentService {
               nodeParams,
               ...settings
             };
-            this.dispatchLuigiEvent(Events.NAVIGATION_REQUEST, {
-              link: route,
-              ...options
-            });
+            this.dispatchLuigiEvent(
+              Events.NAVIGATION_REQUEST,
+              {
+                link: route,
+                ...options
+              },
+              callbackFn
+            );
           },
           navigateToIntent: (semanticSlug: string, params = {}): void => {
             let newPath = '#?intent=';
@@ -173,19 +178,14 @@ export class WebComponentService {
               fromParent,
               nodeParams
             };
-            return new Promise((resolve, reject) => {
+            return new Promise((resolve) => {
               this.containerService.dispatch(
                 Events.GET_CURRENT_ROUTE_REQUEST,
                 this.thisComponent,
                 { ...options },
                 (route) => {
-                  if (route) {
-                    resolve(route);
-                  } else {
-                    reject('No current route received.');
-                  }
-                },
-                'callback'
+                  resolve(route);
+                }
               );
             });
           },
@@ -193,31 +193,85 @@ export class WebComponentService {
             nodeParams = params;
             return linkManagerInstance;
           },
+          updateModalPathInternalNavigation: (path: string, modalSettings = {}, addHistoryEntry = false): void => {
+            if (!path) {
+              console.warn('Updating path of the modal upon internal navigation prevented. No path specified.');
+              return;
+            }
+
+            const options = {
+              fromClosestContext,
+              fromContext,
+              fromParent,
+              fromVirtualTreeRoot,
+              nodeParams
+            };
+
+            this.dispatchLuigiEvent(
+              Events.UPDATE_MODAL_PATH_DATA_REQUEST,
+              Object.assign(options, {
+                history: addHistoryEntry,
+                link: path,
+                modal: modalSettings
+              })
+            );
+          },
           updateTopNavigation: (): void => {
             this.dispatchLuigiEvent(Events.UPDATE_TOP_NAVIGATION_REQUEST, {});
           },
-          pathExists: () => {
+          pathExists: (link: string) => {
+            const options = {
+              fromContext,
+              fromClosestContext,
+              fromVirtualTreeRoot,
+              fromParent,
+              nodeParams
+            };
             return new Promise((resolve, reject) => {
               this.containerService.dispatch(
-                Events.PATH_EXISTS_REQUEST,
+                Events.CHECK_PATH_EXISTS_REQUEST,
                 this.thisComponent,
-                {},
+                { ...options, link },
                 (exists) => {
                   if (exists) {
                     resolve(true);
                   } else {
                     reject(false);
                   }
-                },
-                'callback'
+                }
+              );
+              // For BW compatibility
+              this.containerService.dispatch(
+                Events.PATH_EXISTS_REQUEST,
+                this.thisComponent,
+                { ...options, link },
+                (exists) => {
+                  if (exists) {
+                    resolve(true);
+                  } else {
+                    reject(false);
+                  }
+                }
               );
             });
           },
           openAsDrawer: (route, drawerSettings = {}) => {
             linkManagerInstance.navigate(route, { drawer: drawerSettings });
           },
-          openAsModal: (route, modalSettings = {}) => {
-            linkManagerInstance.navigate(route, { modal: modalSettings });
+          openAsModal: (
+            route,
+            modalSettings = {},
+            callbackFn?: (value?: unknown) => void
+          ): Promise<{ goBackValue: unknown }> => {
+            return new Promise((resolve) => {
+              linkManagerInstance.navigate(route, { modal: modalSettings }, (value: unknown) => {
+                resolve({ goBackValue: value });
+
+                if (callbackFn && typeof callbackFn === 'function') {
+                  callbackFn(value);
+                }
+              });
+            });
           },
           openAsSplitView: (route, splitViewSettings = {}) => {
             linkManagerInstance.navigate(route, {
@@ -229,6 +283,12 @@ export class WebComponentService {
           },
           hasBack: () => {
             return false;
+          },
+          updateModalSettings: (modalSettings = {}, addHistoryEntry = false) => {
+            this.dispatchLuigiEvent(Events.UPDATE_MODAL_SETTINGS_REQUEST, {
+              updatedModalSettings: modalSettings,
+              addHistoryEntry
+            });
           }
         };
         return linkManagerInstance;
@@ -239,7 +299,9 @@ export class WebComponentService {
             alertSettings.id = this.alertIndex++;
             return new Promise((resolve) => {
               this.alertResolvers[alertSettings.id] = resolve;
-              this.dispatchLuigiEvent(Events.ALERT_REQUEST, alertSettings);
+              this.dispatchLuigiEvent(Events.ALERT_REQUEST, alertSettings, (dismissKey?: boolean | string) => {
+                this.resolveAlert(alertSettings.id, dismissKey);
+              });
             });
           },
           showConfirmationModal: (settings) => {
@@ -255,8 +317,7 @@ export class WebComponentService {
                   } else {
                     reject();
                   }
-                },
-                'callback'
+                }
               );
             });
           },
@@ -269,8 +330,8 @@ export class WebComponentService {
           openUserSettings: () => {
             this.dispatchLuigiEvent(Events.OPEN_USER_SETTINGS_REQUEST, this.thisComponent.userSettings);
           },
-          collapseLeftSideNav: () => {
-            this.dispatchLuigiEvent(Events.COLLAPSE_LEFT_NAV_REQUEST, {});
+          collapseLeftSideNav: (state: boolean) => {
+            this.dispatchLuigiEvent(Events.COLLAPSE_LEFT_NAV_REQUEST, { state });
           },
           getDirtyStatus: () => {
             return this.thisComponent.dirtyStatus || false;
@@ -281,11 +342,31 @@ export class WebComponentService {
           setDocumentTitle: (title) => {
             this.dispatchLuigiEvent(Events.SET_DOCUMENT_TITLE_REQUEST, title);
           },
+          setDirtyStatus: (isDirty: boolean) => {
+            this.dispatchLuigiEvent(Events.SET_DIRTY_STATUS_REQUEST, { dirty: isDirty });
+          },
+          setCurrentLocale: (locale: string) => {
+            if (locale) {
+              this.dispatchLuigiEvent(Events.SET_CURRENT_LOCALE_REQUEST, { currentLocale: locale });
+            }
+          },
           removeBackdrop: () => {
             this.dispatchLuigiEvent(Events.REMOVE_BACKDROP_REQUEST, {});
           },
+          addBackdrop: () => {
+            this.dispatchLuigiEvent(Events.ADD_BACKDROP_REQUEST, {});
+          },
+          showLoadingIndicator: () => {
+            this.dispatchLuigiEvent(Events.SHOW_LOADING_INDICATOR_REQUEST, {});
+          },
+          hideLoadingIndicator: () => {
+            this.dispatchLuigiEvent(Events.HIDE_LOADING_INDICATOR_REQUEST, {});
+          },
           hideAppLoadingIndicator: () => {
             this.dispatchLuigiEvent(Events.HIDE_LOADING_INDICATOR_REQUEST, {});
+          },
+          closeCurrentModal: () => {
+            this.dispatchLuigiEvent(Events.CLOSE_CURRENT_MODAL_REQUEST, {});
           }
         };
       },
@@ -320,6 +401,7 @@ export class WebComponentService {
         }
         this.dispatchLuigiEvent(Events.ADD_NODE_PARAMS_REQUEST, {
           params,
+          data: params,
           keepBrowserHistory
         });
       },
@@ -349,6 +431,13 @@ export class WebComponentService {
       },
       getClientPermissions: (): object => {
         return this.thisComponent.clientPermissions || {};
+      },
+      addCoreSearchParams: (searchParams = {}, keepBrowserHistory = true, preventLuigiConfigUpdate = false) => {
+        this.dispatchLuigiEvent(Events.ADD_SEARCH_PARAMS_REQUEST, {
+          data: searchParams,
+          keepBrowserHistory,
+          preventLuigiConfigUpdate
+        });
       },
       getUserSettings: (): object => {
         return this.thisComponent.userSettings || {};
@@ -392,6 +481,23 @@ export class WebComponentService {
     } else {
       wc.context = ctx;
       wc.LuigiClient = clientAPI;
+    }
+    const wcCreationInterceptor = this.thisComponent.webcomponentCreationInterceptor;
+
+    if (wcCreationInterceptor && typeof wcCreationInterceptor === 'function') {
+      try {
+        const isSpecialMf = !!this.thisComponent._luigiMicroFrontendType &&
+          this.thisComponent._luigiMicroFrontendType !== 'main';
+        wcCreationInterceptor(
+          wc,
+          this.thisComponent.currentNode,
+          ctx,
+          nodeId,
+          isSpecialMf
+        );
+      } catch (err) {
+        console.error('Error applying web component creation interceptor: ', err);
+      }
     }
   }
 
@@ -456,9 +562,9 @@ export class WebComponentService {
    * Handles the import of self registered web component bundles, i.e. the web component
    * is added to the customElements registry by the bundle code rather than by luigi.
    *
-   * @param {*} node the corresponding navigation node
-   * @param {*} viewUrl the source of the wc bundle
-   * @param {*} onload callback function executed after script attached and loaded
+   * @param {*} node - the corresponding navigation node
+   * @param {*} viewUrl - the source of the wc bundle
+   * @param {*} onload - callback function executed after script attached and loaded
    */
   includeSelfRegisteredWCFromUrl(node: WebComponentNode, viewUrl: string, onload: () => void) {
     if (this.checkWCUrl(viewUrl)) {
@@ -499,7 +605,7 @@ export class WebComponentService {
    * Checks if a url is allowed to be included, based on 'navigation.validWebcomponentUrls' in luigi config.
    * Returns true, if allowed.
    *
-   * @param {*} url the url string to check
+   * @param {*} url - the url string to check
    */
   checkWCUrl(url: string): boolean {
     // if (url.indexOf('://') > 0 || url.trim().indexOf('//') === 0) {
@@ -631,9 +737,9 @@ export class WebComponentService {
    * Responsible for rendering web component compounds based on a renderer or a nesting
    * micro frontend.
    *
-   * @param {*} navNode the navigation node defining the compound
-   * @param {ContainerElement} wc_container the web component container dom element
-   * @param {*} context the luigi node context
+   * @param {*} navNode - the navigation node defining the compound
+   * @param {ContainerElement} wc_container - the web component container dom element
+   * @param {*} context - the luigi node context
    */
   renderWebComponentCompound(
     navNode: WebComponentNode,
@@ -713,15 +819,15 @@ export class WebComponentService {
    * if one exists in the `alertResolvers` object. If the resolver exists, it is invoked with `dismissKey` as its argument,
    * and then the resolver is removed from the `alertResolvers` object to avoid future invocations. If no resolver is found
    * for the provided `id`, a message is logged to the console indicating that no matching promise is in the list.
-   * @param {string} id - The unique identifier for the alert to resolve.
-   * @param {dismissKey} [dismissKey=true] - An optional key or value passed to the resolver. Defaults to `true` if not provided.
+   * @param {string} id - the unique identifier for the alert to resolve
+   * @param {boolean|string} dismissKey - an optional key or value passed to the resolver; defaults to `true` if not provided
    *
    * @returns {void}
    *
    */
-  resolveAlert(id, dismissKey = true) {
+  resolveAlert(id: string, dismissKey?: boolean | string) {
     if (this.alertResolvers[id]) {
-      this.alertResolvers[id](dismissKey);
+      this.alertResolvers[id](dismissKey === undefined ? true : dismissKey);
       this.alertResolvers[id] = undefined;
     } else {
       console.log('Promise is not in the list.');
@@ -731,7 +837,7 @@ export class WebComponentService {
   /**
    * Resolves a confirmation modal by invoking the corresponding resolver function.
    *
-   * @param {boolean} confirmed the result of the modal being closed
+   * @param {boolean} confirmed - the result of the modal being closed
    *
    */
   notifyConfirmationModalClosed(confirmed: boolean) {

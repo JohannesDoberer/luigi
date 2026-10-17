@@ -43,7 +43,7 @@ class NavigationClass {
       const globalContext = LuigiConfig.getConfigValue('navigation.globalContext');
       const rootContext = { ...(globalContext || {}), ...(rootNode.context || {}) };
       const navObj = await this.buildNode(nodeNamesInCurrentPath, [rootNode], rootNode.children, rootContext);
-      const navPathSegments = navObj.navigationPath.filter(x => x.pathSegment).map(x => x.pathSegment);
+      const navPathSegments = navObj.navigationPath.filter((x) => x.pathSegment).map((x) => x.pathSegment);
       navObj.isExistingRoute = !activePath || nodeNamesInCurrentPath.length === navPathSegments.length;
       const pathSegments = activePath.split('/');
       navObj.matchedPath = pathSegments
@@ -72,7 +72,7 @@ class NavigationClass {
           children = [];
         }
         children =
-          children.map(n => this.getExpandStructuralPathSegment(n)).map(n => this.bindChildToParent(n, node)) || [];
+          children.map((n) => this.getExpandStructuralPathSegment(n)).map((n) => this.bindChildToParent(n, node)) || [];
       } catch (err) {
         console.error('Could not lazy-load children for node', err);
       }
@@ -104,7 +104,7 @@ class NavigationClass {
   }
 
   getAccessibleNodes(node, children, context) {
-    return children ? children.filter(child => NavigationHelpers.isNodeAccessPermitted(child, node, context)) : [];
+    return children ? children.filter((child) => NavigationHelpers.isNodeAccessPermitted(child, node, context)) : [];
   }
 
   bindChildToParent(child, node) {
@@ -198,7 +198,21 @@ class NavigationClass {
       return str;
     }
     newStr += ':virtualSegment_' + _virtualPathIndex + '/';
-    return str + '/' + newStr;
+
+    let vViewUrl = str;
+    if (str.includes('{virtualTreePath}')) {
+      vViewUrl = str.replace('{virtualTreePath}', newStr);
+    } else {
+      vViewUrl = str + '/' + newStr;
+    }
+    try {
+      if (new URL(vViewUrl, 'http://dummy-base').origin === new URL(str, 'http://dummy-base').origin) {
+        return vViewUrl;
+      }
+    } catch (err) {
+      console.error('Error building virtual view URL -- make sure virtualTreePath is not part of origin.', err);
+    }
+    return str;
   }
 
   buildVirtualTree(node, nodeNamesInCurrentPath, pathParams) {
@@ -232,7 +246,6 @@ class NavigationClass {
         _virtualPathIndex,
         _virtualViewUrl
       });
-
       const isVirtualChildren =
         Array.isArray(node.children) && node.children.length > 0 ? node.children[0]._virtualTree : false;
       if (node.children && !isVirtualChildren) {
@@ -246,8 +259,8 @@ class NavigationClass {
 
   findMatchingNode(urlPathElement, nodes) {
     let result = null;
-    const segmentsLength = nodes.filter(n => !!n.pathSegment).length;
-    const dynamicSegmentsLength = nodes.filter(n => n.pathSegment && n.pathSegment.startsWith(':')).length;
+    const segmentsLength = nodes.filter((n) => !!n.pathSegment).length;
+    const dynamicSegmentsLength = nodes.filter((n) => n.pathSegment && n.pathSegment.startsWith(':')).length;
     urlPathElement = urlPathElement.includes('#') ? urlPathElement.split('#').shift() : urlPathElement;
 
     if (segmentsLength > 1) {
@@ -258,7 +271,7 @@ class NavigationClass {
           'Children:',
           nodes
         );
-        nodes = nodes.filter(n => n.pathSegment && n.pathSegment.startsWith(':'));
+        nodes = nodes.filter((n) => n.pathSegment && n.pathSegment.startsWith(':'));
       }
       if (dynamicSegmentsLength > 1) {
         console.error(
@@ -268,7 +281,7 @@ class NavigationClass {
         return null;
       }
     }
-    nodes.some(node => {
+    nodes.some((node) => {
       if (
         // Static nodes
         node.pathSegment === urlPathElement ||
@@ -283,10 +296,10 @@ class NavigationClass {
     return result;
   }
 
-  onNodeChange(prevNode, nextNode) {
+  onNodeChange(prevNode, nextNode, aData) {
     const invokedFunction = LuigiConfig.getConfigValue('navigation.nodeChangeHook');
     if (typeof invokedFunction === 'function') {
-      invokedFunction(prevNode, nextNode);
+      invokedFunction(prevNode, nextNode, aData);
     } else if (invokedFunction !== undefined) {
       console.warn('nodeChangeHook is not a function!');
     }
@@ -342,7 +355,7 @@ class NavigationClass {
     children
       .slice()
       .reverse()
-      .forEach(node => {
+      .forEach((node) => {
         if (!childToKeepFound || node.tabNav) {
           if (node.tabNav === false) {
             // explicitly set to false
@@ -386,7 +399,7 @@ class NavigationClass {
       updatedCompData.context = current.pathData._context;
       updatedCompData.hasCategoriesWithIcon = false;
       const groupedChildren = groupedChildrenData.children;
-      Object.values(groupedChildren).forEach(value => {
+      Object.values(groupedChildren).forEach((value) => {
         if (!updatedCompData.hasCategoriesWithIcon && value && value.metaInfo && value.metaInfo.icon) {
           updatedCompData.hasCategoriesWithIcon = true;
         }
@@ -407,14 +420,14 @@ class NavigationClass {
 
   /**
    * Checks if selectedNode has a category and if yes the categoryUid in metaInfo will be written to the browsers localstorage.
-   * @param {*} sortedChildrenEntries are sorted left nav node data
+   * @param {*} sortedChildrenEntries - are sorted left nav node data
    * @param {*} selectedNode
    * @param {boolean} sideNavAccordionMode
    */
   expandCategoriesByNavigationFn(sortedChildrenEntries, selectedNode, sideNavAccordionMode) {
     if (sortedChildrenEntries) {
       for (const [key, categoryChildren] of Object.entries(sortedChildrenEntries)) {
-        categoryChildren.forEach(node => {
+        categoryChildren.forEach((node) => {
           if (node === selectedNode && categoryChildren.metaInfo && categoryChildren.metaInfo.collapsible) {
             NavigationHelpers.storeExpandedState(categoryChildren.metaInfo.categoryUid, true, sideNavAccordionMode);
           }

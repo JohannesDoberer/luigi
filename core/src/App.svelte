@@ -22,7 +22,8 @@
     AuthHelpers,
     StorageHelper,
     UserSettingsHelper,
-    NavigationHelpers
+    NavigationHelpers,
+    FastNavHelpers
   } from './utilities/helpers';
   import {
     LuigiI18N,
@@ -102,6 +103,7 @@
   let btpToolLayout =
     LuigiConfig.getConfigValue('settings.btpToolLayout') &&
     GenericHelpers.requestExperimentalFeature('btpToolLayout', true);
+  let vegaLayout = LuigiConfig.getConfigValue('settings.sideNav.style') === 'vega';
 
   export let isSearchFieldVisible;
   export let inputElem;
@@ -121,6 +123,7 @@
       viewStackSize: preservedViews.length,
       clientPermissions: iframeConf.nextViewUrl ? iframeConf.nextClientPermissions : iframeConf.clientPermissions,
       thirdPartyCookieCheck: await LuigiConfig.getConfigValue('settings.thirdPartyCookieCheck'),
+      fastNavigation: !!LuigiConfig.getConfigValue('settings.F6Navigation'),
       userSettings: hasUserSettings ? userSettingGroups[userSettingsGroupName] : null,
       anchor: LuigiRouting.getAnchor(),
       cssVariables: await LuigiTheming.getCSSVariables()
@@ -368,7 +371,7 @@
 
       NodeDataManagementStorage.deleteCache();
       const currentPath = Routing.getCurrentPath();
-      Routing.handleRouteChange(currentPath, getComponentWrapper(), node, config);
+      Routing.handleRouteChange(currentPath, getComponentWrapper(), node, config, false, false, true);
     }, ['navigation.nodes']);
 
     // subsequential route handling
@@ -661,6 +664,7 @@
   let previousWindowWidth;
   let configTag;
   let isHeaderDisabled;
+  let f6NavigationEnabled;
 
   const closeLeftNav = () => {
     document.body.classList.remove('lui-leftNavToggle');
@@ -820,12 +824,17 @@
   };
 
   const showUnsavedChangesModal = () => {
-    return showModal({
-      header: LuigiI18N.getTranslation('luigi.unsavedChangesAlert.header'),
-      body: LuigiI18N.getTranslation('luigi.unsavedChangesAlert.body'),
-      buttonDismiss: LuigiI18N.getTranslation('luigi.button.dismiss'),
-      buttonConfirm: LuigiI18N.getTranslation('luigi.button.confirm')
-    });
+    const customHandler = LuigiConfig.getConfigValue('settings.unsavedChangesHandler');
+    if (customHandler) {
+      return customHandler();
+    } else {
+      return showModal({
+        header: LuigiI18N.getTranslation('luigi.unsavedChangesAlert.header'),
+        body: LuigiI18N.getTranslation('luigi.unsavedChangesAlert.body'),
+        buttonDismiss: LuigiI18N.getTranslation('luigi.button.dismiss'),
+        buttonConfirm: LuigiI18N.getTranslation('luigi.button.confirm')
+      });
+    }
   };
 
   export const getDirtyStatus = () => {
@@ -1276,6 +1285,23 @@
         iframe.luigi.initOk = true;
       }
 
+      if ('luigi.fast-nav' === e.data.msg) {
+        // Ignore forwarded F6 while a backdrop-bearing overlay is open: the
+        // regions behind the backdrop are inert, so focus must stay trapped.
+        if (f6NavigationEnabled && !isFastNavBlockedByBackdrop()) {
+          FastNavHelpers.handleF6(
+            {
+              key: 'F6',
+              shiftKey: !!e.data.shiftKey,
+              preventDefault: () => {},
+              stopPropagation: () => {}
+            },
+            document
+          );
+        }
+        return;
+      }
+
       if ('luigi.navigate.ok' === e.data.msg) {
         iframe.luigi.viewUrl = iframe.luigi.nextViewUrl;
         iframe.luigi.nextViewUrl = '';
@@ -1346,12 +1372,18 @@
       }
 
       if ('luigi.show-loading-indicator' === e.data.msg) {
-        showLoadingIndicator = true;
+        const mfeLocation = e.data.location || GenericHelpers.calcMFELocation(iframe);
+        if (mfeLocation === 'main') {
+          showLoadingIndicator = true;
+        }
       }
 
       if ('luigi.hide-loading-indicator' === e.data.msg) {
-        clearTimeout(loadingIndicatorTimeout);
-        showLoadingIndicator = false;
+        const mfeLocation = e.data.location || GenericHelpers.calcMFELocation(iframe);
+        if (mfeLocation === 'main') {
+          clearTimeout(loadingIndicatorTimeout);
+          showLoadingIndicator = false;
+        }
       }
 
       if ('luigi.navigation.open' === e.data.msg) {
@@ -1446,8 +1478,12 @@
           contentNode = node;
 
           if (modal !== undefined) {
+            let openerIframe = iframe;
+            if (modal._reuseIframeOpener && mfModalList.length === 1) {
+              openerIframe = mfModalList[0].mfModal.openerIframe;
+            }
             !modal.keepPrevious && resetMicrofrontendModalData();
-            await openViewInModal(path, modal === true ? {} : modal, iframe);
+            await openViewInModal(path, modal === true ? {} : modal, openerIframe);
             checkResolve();
           } else if (splitView !== undefined) {
             await openSplitView(path, splitView);
@@ -1464,7 +1500,7 @@
       if ('luigi.navigation.back' === e.data.msg) {
         const mfModalTopMostElement = mfModalList[mfModalList.length - 1];
         const mfModalPreviousElement = mfModalList.length > 1 && mfModalList[mfModalList.length - 2];
-        const _goBackContext = e.data.goBackContext && JSON.parse(e.data.goBackContext);
+        const _goBackContext = e.data.goBackContext && GenericHelpers.parseJSON(e.data.goBackContext);
         if (IframeHelpers.isMessageSource(e, mfModalTopMostElement && mfModalTopMostElement.modalIframe)) {
           closeModal(mfModalList.length - 1, true, _goBackContext);
           let modalConfig = config;
@@ -1659,8 +1695,13 @@
 
       if ('luigi.addSearchParams' === e.data.msg) {
         if (iframe.luigi.currentNode.clientPermissions && iframe.luigi.currentNode.clientPermissions.urlParameters) {
-          const { data, keepBrowserHistory } = e.data;
-          RoutingHelpers.addSearchParamsFromClient(iframe.luigi.currentNode, data, keepBrowserHistory);
+          const { data, keepBrowserHistory, preventLuigiConfigUpdate } = e.data;
+          RoutingHelpers.addSearchParamsFromClient(
+            iframe.luigi.currentNode,
+            data,
+            keepBrowserHistory,
+            preventLuigiConfigUpdate
+          );
         } else {
           console.warn('No client permissions to add url parameter for this node.');
         }
@@ -1764,7 +1805,7 @@
       if (NavigationHelpers.getBurgerTooltipConfig()) {
         const [collapseNavTooltip, expandNavTooltip] = NavigationHelpers.getBurgerTooltipConfig();
         if (collapseNavTooltip && expandNavTooltip) {
-          const collapsedNavState = JSON.parse(localStorage.getItem(NavigationHelpers.COL_NAV_KEY));
+          const collapsedNavState = GenericHelpers.parseJSON(localStorage.getItem(NavigationHelpers.COL_NAV_KEY));
           burgerTooltip = collapsedNavState ? collapseNavTooltip : expandNavTooltip;
         }
       }
@@ -1799,9 +1840,35 @@
     searchProvider = LuigiConfig.getConfigValue('globalSearch.searchProvider');
     configTag = LuigiConfig.getConfigValue('tag');
     isHeaderDisabled = LuigiConfig.getConfigValue('settings.header.disabled');
+    f6NavigationEnabled = LuigiConfig.getConfigValue('settings.F6Navigation');
   });
 
+  // Returns whether an overlay with an active backdrop is currently open. Luigi
+  // makes the regions behind a backdrop inert (see IframeHelpers.disableA11Y*),
+  // which covers modals, confirmation modals, drawers with backdrop and the
+  // client-driven `luigi.add-backdrop`. FastNavHelpers detects that inert state
+  // from the DOM markers those helpers leave behind, so F6 fast navigation stays
+  // suppressed for every backdrop type. A drawer without a backdrop leaves the
+  // background interactive and therefore does NOT block fast navigation.
+  const isFastNavBlockedByBackdrop = () => {
+    return FastNavHelpers.isBackgroundInert(document);
+  };
+
   const handleKeyDown = (event) => {
+    if (f6NavigationEnabled && event.key === 'F6') {
+      // While a backdrop-bearing overlay (modal, confirmation modal, or drawer
+      // with backdrop) is open, the regions behind it are made inert, so F6 must
+      // not move focus out of the overlay. Suppress fast navigation (and the
+      // browser default) to keep focus trapped. A backdrop-less drawer keeps the
+      // background interactive, so F6 stays enabled there.
+      if (isFastNavBlockedByBackdrop()) {
+        event.preventDefault();
+        return;
+      }
+      FastNavHelpers.handleF6(event, document);
+      event.preventDefault();
+      return;
+    }
     if (event.keyCode === KEYCODE_ESC && mfModalList && mfModalList.length > 0) {
       closeModal(mfModalList.length - 1);
     }
@@ -1811,6 +1878,7 @@
 <svelte:window on:resize={onResize} on:keydown={handleKeyDown} />
 <div
   id="app"
+  class:vega={vegaLayout}
   class:no-nav={hideNav}
   class:no-side-nav={hideSideNav}
   class:no-top-nav={isHeaderDisabled}
@@ -1884,6 +1952,7 @@
                 bind:inputElem
                 bind:customSearchItemRendererSlot
                 {burgerTooltip}
+                fastNavGroup={f6NavigationEnabled ? 'banner' : null}
               />
             {/if}
           </div>
@@ -1898,6 +1967,7 @@
                   on:handleClick={handleNavClick}
                   on:resizeTabNav={onResizeTabNav}
                   {burgerTooltip}
+                  fastNavGroup={f6NavigationEnabled ? 'navigation' : null}
                 />
               </div>
             </div>
@@ -1913,6 +1983,8 @@
                   class="fd-page iframeContainer"
                   class:lui-split-view={mfSplitView.displayed}
                   class:lui-collapsed={mfSplitView.collapsed}
+                  data-luigi-fast-nav-group={f6NavigationEnabled ? 'main' : null}
+                  role="main"
                   tabindex="0"
                   use:init
                 >
@@ -1970,6 +2042,7 @@
         bind:inputElem
         bind:customSearchItemRendererSlot
         {burgerTooltip}
+        fastNavGroup={f6NavigationEnabled ? 'banner' : null}
       />
     {/if}
     {#if !(hideNav || hideSideNav)}
@@ -1979,6 +2052,7 @@
         on:handleClick={handleNavClick}
         on:resizeTabNav={onResizeTabNav}
         {burgerTooltip}
+        fastNavGroup={f6NavigationEnabled ? 'navigation' : null}
       />
     {/if}
     <Backdrop disable={disableBackdrop}>
@@ -1987,6 +2061,8 @@
         class="fd-page iframeContainer"
         class:lui-split-view={mfSplitView.displayed}
         class:lui-collapsed={mfSplitView.collapsed}
+        data-luigi-fast-nav-group={f6NavigationEnabled ? 'main' : null}
+        role="main"
         tabindex="0"
         use:init
       >
@@ -2042,6 +2118,10 @@
     --luigi__breadcrumb--height: 2.75rem;
     --luigi__shellbar--height: 2.75rem;
     --luigi__horizontal-nav--height: 2.75rem;
+  }
+
+  .vega {
+    --luigi__leftnav_collapsed--width: var(--fdSideNav_Width, 4rem);
   }
 
   .fd-tool-layout {
@@ -2596,10 +2676,6 @@
     background-clip: padding-box;
   }
 
-  :global(.fd-shellbar__logo) {
-    margin-right: 0px;
-  }
-
   :global(.fd-menu__link) {
     text-decoration: none; //Remove underline from links in fd-menu
     border-radius: 0; //Remove border radius from links inside fd-menu
@@ -2613,7 +2689,7 @@
   }
 
   //Make border radius for links inside fd-menu only for the first and last elements
-  :global(.fd-menu) {
+  :global(#app:not(.vega) .fd-menu) {
     :global(.fd-menu__list) {
       &:first-child {
         :global(.fd-menu__item) {

@@ -1,6 +1,6 @@
-import { Component, OnInit, ChangeDetectorRef, OnDestroy, ViewChild } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef, OnDestroy, ViewChild, ChangeDetectionStrategy } from '@angular/core';
+import { NgForm } from '@angular/forms';
 import { ActivatedRoute, Params } from '@angular/router';
-import { merge, Observable, Subscription, timer } from 'rxjs';
 import {
   linkManager,
   uxManager,
@@ -10,14 +10,15 @@ import {
   storageManager
 } from '@luigi-project/client';
 import { LuigiContextService, IContextMessage } from '@luigi-project/client-support-angular';
-import { NgForm } from '@angular/forms';
-import { fromPromise } from 'rxjs/internal-compatibility';
-import { delay, timeout } from 'rxjs/operators';
+import { from, Subscription } from 'rxjs';
+import { delay } from 'rxjs/operators';
 
 @Component({
   selector: 'app-project',
   templateUrl: './project.component.html',
-  styleUrls: ['./project.component.scss']
+  styleUrls: ['./project.component.scss'],
+  changeDetection: ChangeDetectionStrategy.Eager,
+  standalone: false
 })
 export class ProjectComponent implements OnInit, OnDestroy {
   @ViewChild('luigiAlertForm') luigiAlertForm: NgForm;
@@ -27,7 +28,7 @@ export class ProjectComponent implements OnInit, OnDestroy {
   public projectId: string;
   public modalActive = false;
   public preservedViewCallbackContext: any;
-  private lcSubscription: Subscription;
+  private lcSubscription: Subscription = new Subscription();
   private cudListener: string;
   public pathExists: { formValue: string; result: boolean | null };
   public confirmationModalResult: '' | 'confirmed' | 'dismissed';
@@ -87,19 +88,21 @@ export class ProjectComponent implements OnInit, OnDestroy {
   public ngOnInit() {
     // We suggest to use a centralized approach of LuigiClient.addContextUpdateListener
     // Take a look at ngOnInit in this component and app.component.ts where we set the listeners.
-    this.lcSubscription = this.luigiService.contextObservable().subscribe((ctx: IContextMessage) => {
-      this.projectId = ctx.context.currentProject;
-      this.preservedViewCallbackContext = ctx.context.goBackContext;
-      this.currentLocale = uxManager().getCurrentLocale();
-      this.canChangeLocale = getClientPermissions().changeCurrentLocale;
-      // Since Luigi runs outside of Zone.js, changes need
-      // to be updated manually
-      // Be sure to check for destroyed ChangeDetectorRef,
-      // else you get runtime Errors
-      if (!this.cdr['destroyed']) {
-        this.cdr.detectChanges();
-      }
-    });
+    this.lcSubscription.add(
+      this.luigiService.contextObservable().subscribe((ctx: IContextMessage) => {
+        this.projectId = ctx.context.currentProject;
+        this.preservedViewCallbackContext = ctx.context.goBackContext;
+        this.currentLocale = uxManager().getCurrentLocale();
+        this.canChangeLocale = getClientPermissions().changeCurrentLocale;
+        // Since Luigi runs outside of Zone.js, changes need
+        // to be updated manually
+        // Be sure to check for destroyed ChangeDetectorRef,
+        // else you get runtime Errors
+        if (!this.cdr['destroyed']) {
+          this.cdr.detectChanges();
+        }
+      })
+    );
 
     this.activatedRoute.params.subscribe((params: Params) => {
       this.projectId = params['projectId'];
@@ -107,7 +110,7 @@ export class ProjectComponent implements OnInit, OnDestroy {
 
     // Decentralized approach, using LuigiClient listeners directly
     //
-    this.cudListener = addContextUpdateListener(updatedContext => {
+    this.cudListener = addContextUpdateListener((updatedContext) => {
       // this.projectId = updatedContext.currentProject;
       // this.preservedViewCallbackContext = updatedContext.goBackContext;
       this.currentLocale = uxManager().getCurrentLocale();
@@ -141,6 +144,7 @@ export class ProjectComponent implements OnInit, OnDestroy {
 
   showConfirmationModal() {
     this.confirmationModalResult = '';
+
     const settings = {
       // header: 'Modal Header - Luigi modal',
       type: 'confirmation',
@@ -165,6 +169,7 @@ export class ProjectComponent implements OnInit, OnDestroy {
 
   showWarningModal() {
     this.confirmationModalResult = '';
+
     const settings = {
       header: 'Warning',
       type: 'warning',
@@ -189,6 +194,7 @@ export class ProjectComponent implements OnInit, OnDestroy {
 
   showAlert() {
     const { type, links, text, closeAfter } = this.luigiAlertForm.value;
+
     this.alertDismissed = text ? false : undefined;
     this.alertDismissKey = text ? false : undefined;
 
@@ -204,7 +210,10 @@ export class ProjectComponent implements OnInit, OnDestroy {
       goToHome: { text: 'homepage', url: '/overview' },
       goToOtherProject: { text: 'other project', url: '/projects/pr2' },
       relativePath: { text: 'relative hide side nav', url: 'hideSideNav' },
-      neverShowItAgain: { text: 'Never show it again', dismissKey: 'neverShowItAgain' }
+      neverShowItAgain: {
+        text: 'Never show it again',
+        dismissKey: 'neverShowItAgain'
+      }
     };
 
     const textData = !text ? '' : links ? texts.withLink : texts.withoutLink;
@@ -219,7 +228,7 @@ export class ProjectComponent implements OnInit, OnDestroy {
 
     uxManager()
       .showAlert(settings)
-      .then(data => {
+      .then((data) => {
         if (typeof data === 'string' && data.includes('neverShowItAgain')) {
           this.alertDismissKey = true;
         }
@@ -249,14 +258,12 @@ export class ProjectComponent implements OnInit, OnDestroy {
   }
 
   public openSplitView() {
-    this.splitViewHandle = linkManager()
-      .withParams({ test: 'true' })
-      .openAsSplitView('/settings', {
-        title: 'Logs',
-        size: 30
-      });
+    this.splitViewHandle = linkManager().withParams({ test: 'true' }).openAsSplitView('/settings', {
+      title: 'Logs',
+      size: 30
+    });
 
-    this.splitViewHandle.on('resize', newSize => {
+    this.splitViewHandle.on('resize', (newSize) => {
       console.info('on:resize: split view got resized to', newSize);
       if (!this.cdr['destroyed']) {
         this.cdr.detectChanges();
@@ -292,8 +299,8 @@ export class ProjectComponent implements OnInit, OnDestroy {
     this.executeWithTimeout(
       promiseStorage,
       100,
-      result => 'success',
-      result => 'Key ' + this.storageDemoKey + 'successfully stored with value ' + this.storageDemoValue
+      (result) => 'success',
+      (result) => 'Key ' + this.storageDemoKey + 'successfully stored with value ' + this.storageDemoValue
     );
   }
 
@@ -305,8 +312,8 @@ export class ProjectComponent implements OnInit, OnDestroy {
     this.executeWithTimeout(
       promiseStorage,
       100,
-      result => (result ? 'info' : 'warning'),
-      result =>
+      (result) => (result ? 'info' : 'warning'),
+      (result) =>
         result ? 'Value for key ' + this.storageDemoKey + ' is ' + result : 'No value for key ' + this.storageDemoKey
     );
   }
@@ -321,8 +328,8 @@ export class ProjectComponent implements OnInit, OnDestroy {
     this.executeWithTimeout(
       promiseStorage,
       100,
-      result => (result ? 'success' : 'warning'),
-      result => (result ? messageOk : messageKo)
+      (result) => (result ? 'success' : 'warning'),
+      (result) => (result ? messageOk : messageKo)
     );
   }
 
@@ -331,8 +338,8 @@ export class ProjectComponent implements OnInit, OnDestroy {
     this.executeWithTimeout(
       promiseStorage,
       100,
-      result => 'success',
-      result => 'Clear all the storage'
+      (result) => 'success',
+      (result) => 'Clear all the storage'
     );
   }
 
@@ -346,8 +353,8 @@ export class ProjectComponent implements OnInit, OnDestroy {
     this.executeWithTimeout(
       promiseStorage,
       100,
-      result => (result ? 'info' : 'warning'),
-      result => (result ? messageOk : messageKo)
+      (result) => (result ? 'info' : 'warning'),
+      (result) => (result ? messageOk : messageKo)
     );
   }
 
@@ -356,20 +363,20 @@ export class ProjectComponent implements OnInit, OnDestroy {
     this.executeWithTimeout(
       promiseStorage,
       100,
-      result => 'info',
-      keys => 'All keys present:<br/><br/>' + keys.join('<br/>')
+      (result) => 'info',
+      (keys) => 'All keys present:<br/><br/>' + keys.join('<br/>')
     );
   }
 
   executeWithTimeout(promise, timeout, alertType, successFullyMessage) {
     this.startStorageOperation();
-    fromPromise(promise)
+    from(promise)
       .pipe(delay(timeout))
       .subscribe(
-        result => {
+        (result) => {
           this.storageShowAlert(alertType(result), successFullyMessage(result));
         },
-        error => {
+        (error) => {
           this.storageShowAlert('error', error);
           this.finishStorageOperation();
         },

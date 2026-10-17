@@ -1,4 +1,4 @@
-import { Component, OnInit, ViewEncapsulation } from '@angular/core';
+import { Component, OnInit, ViewEncapsulation, ChangeDetectionStrategy } from '@angular/core';
 import { addInactiveListener, sendCustomMessage } from '@luigi-project/client';
 import { LuigiContextService } from '@luigi-project/client-support-angular';
 
@@ -6,7 +6,9 @@ import { LuigiContextService } from '@luigi-project/client-support-angular';
   selector: 'app-root',
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.scss'],
-  encapsulation: ViewEncapsulation.None
+  encapsulation: ViewEncapsulation.None,
+  changeDetection: ChangeDetectionStrategy.Eager,
+  standalone: false
 })
 export class AppComponent implements OnInit {
   public title = 'app';
@@ -14,7 +16,7 @@ export class AppComponent implements OnInit {
   constructor(private luigiService: LuigiContextService) {}
 
   ngOnInit() {
-    this.luigiService.contextObservable().subscribe(ctxObj => {
+    this.luigiService.contextObservable().subscribe((ctxObj) => {
       if (ctxObj.contextType === 0) {
         sendCustomMessage({ id: 'my-micro-frontend-is-ready' });
       }

@@ -115,7 +115,7 @@ promptForTag() {
     echo "No tag provided, pick one of the last releases;"
     echo "Fetching current releases are being fetched from github."
     echo ""
-    rawReleases=`curl -s https://api.github.com/repos/SAP/luigi/releases`
+    rawReleases=`curl -s https://api.github.com/repos/luigi-project/luigi/releases`
     # rawReleases=`cat releases`
 
     count=1;
@@ -166,7 +166,7 @@ checkoutLuigiToTestfolder() {
     if [ "$CI" == "true" ]; then
       # gh actions
       echoe "Clone using gh cli"
-      gh repo clone https://github.com/SAP/luigi.git $LUIGI_DIR_TESTING
+      gh repo clone https://github.com/luigi-project/luigi.git $LUIGI_DIR_TESTING
     else
       # osx localhost
       echoe "Clone using ssh"
@@ -185,7 +185,7 @@ checkoutLuigiToTestfolder() {
   for FOLDER in "${APP_FOLDERS[@]}"; do
     echoe "Installing app $FOLDER in $LUIGI_DIR_TESTING"
     cd $LUIGI_DIR_TESTING/$FOLDER
-    npm i
+    npm ci
   done
 }
 

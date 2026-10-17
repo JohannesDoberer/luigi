@@ -1,31 +1,70 @@
 <svelte:options
   customElement={{
-    tag: null,
     shadow: 'none',
     props: {
-      activeFeatureToggleList: { type: 'Array', reflect: false, attribute: 'active-feature-toggle-list' },
+      activeFeatureToggleList: {
+        type: 'Array',
+        reflect: false,
+        attribute: 'active-feature-toggle-list'
+      },
       allowRules: { type: 'Array', reflect: false, attribute: 'allow-rules' },
       anchor: { type: 'String', reflect: false, attribute: 'anchor' },
       authData: { type: 'Object', reflect: false, attribute: 'auth-data' },
-      clientPermissions: { type: 'Object', reflect: false, attribute: 'client-permissions' },
+      clientPermissions: {
+        type: 'Object',
+        reflect: false,
+        attribute: 'client-permissions'
+      },
       context: { type: 'String', reflect: false, attribute: 'context' },
       deferInit: { type: 'Boolean', attribute: 'defer-init' },
-      dirtyStatus: { type: 'Boolean', reflect: false, attribute: 'dirty-status' },
-      documentTitle: { type: 'String', reflect: false, attribute: 'document-title' },
+      dirtyStatus: {
+        type: 'Boolean',
+        reflect: false,
+        attribute: 'dirty-status'
+      },
+      documentTitle: {
+        type: 'String',
+        reflect: false,
+        attribute: 'document-title'
+      },
       hasBack: { type: 'Boolean', reflect: false, attribute: 'has-back' },
       label: { type: 'String', reflect: false, attribute: 'label' },
       locale: { type: 'String', reflect: false, attribute: 'locale' },
       noShadow: { type: 'Boolean', attribute: 'no-shadow' },
       nodeParams: { type: 'Object', reflect: false, attribute: 'node-params' },
       pathParams: { type: 'Object', reflect: false, attribute: 'path-params' },
-      sandboxRules: { type: 'Array', reflect: false, attribute: 'sandbox-rules' },
-      searchParams: { type: 'Object', reflect: false, attribute: 'search-params' },
-      skipCookieCheck: { type: 'String', reflect: false, attribute: 'skip-cookie-check' },
-      skipInitCheck: { type: 'Boolean', reflect: false, attribute: 'skip-init-check' },
+      sandboxRules: {
+        type: 'Array',
+        reflect: false,
+        attribute: 'sandbox-rules'
+      },
+      searchParams: {
+        type: 'Object',
+        reflect: false,
+        attribute: 'search-params'
+      },
+      skipCookieCheck: {
+        type: 'String',
+        reflect: false,
+        attribute: 'skip-cookie-check'
+      },
+      skipInitCheck: {
+        type: 'Boolean',
+        reflect: false,
+        attribute: 'skip-init-check'
+      },
       theme: { type: 'String', reflect: false, attribute: 'theme' },
-      userSettings: { type: 'Object', reflect: false, attribute: 'user-settings' },
+      userSettings: {
+        type: 'Object',
+        reflect: false,
+        attribute: 'user-settings'
+      },
       viewurl: { type: 'String', reflect: false, attribute: 'viewurl' },
-      webcomponent: { type: 'String', reflect: false, attribute: 'webcomponent' }
+      webcomponent: {
+        type: 'String',
+        reflect: false,
+        attribute: 'webcomponent'
+      }
     },
     extend: (customElementConstructor) => {
       let notInitFn = (name) => {
@@ -41,6 +80,11 @@
         notifyAlertClosed = notInitFn('notifyAlertClosed');
         notifyConfirmationModalClosed = notInitFn('notifyConfirmationModalClosed');
         attributeChangedCallback(name, oldValue, newValue) {
+          try {
+            super.attributeChangedCallback(name, oldValue, newValue);
+          } catch (e) {
+            console.error('Error in super.attributeChangedCallback', e);
+          }
           if (this.containerInitialized) {
             if (name === 'context') {
               this.updateContext(JSON.parse(newValue));
@@ -75,7 +119,7 @@
   export let anchor: string;
   export let authData: any;
   export let clientPermissions: any;
-  export let context: string;
+  export let context: string | object;
   export let deferInit: boolean;
   export let dirtyStatus: boolean;
   export let documentTitle: string;
@@ -95,9 +139,13 @@
   export let webcomponent: any;
   /* eslint-enable */
 
-  const iframeHandle: IframeHandle = {};
+  const iframeHandle: IframeHandle = {
+    iframe: undefined
+  };
   let mainComponent: ContainerElement;
   let containerInitialized = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let thisComponent: any;
 
   const webcomponentService = new WebComponentService();
 
@@ -143,7 +191,23 @@
         if (webcomponent) {
           (thisComponent.getNoShadow() ? thisComponent : mainComponent)._luigi_mfe_webcomponent.context = contextObj;
         } else {
-          ContainerAPI.updateContext(contextObj, internal, iframeHandle);
+          const internalObj = {
+            ...(internal || {}),
+            ...{
+              activeFeatureToggleList: thisComponent.activeFeatureToggleList || [],
+              currentLocale: thisComponent.locale,
+              currentTheme: thisComponent.theme,
+              userSettings: thisComponent.userSettings || null,
+              cssVariables: thisComponent.cssVariables || {},
+              anchor: thisComponent.anchor || '',
+              drawer: thisComponent.drawer || false,
+              modal: thisComponent.modal || false,
+              viewStackSize: thisComponent.viewStackSize || 0,
+              isNavigateBack: thisComponent.isNavigateBack || false,
+              clientPermissions: thisComponent.clientPermissions || {}
+            }
+          };
+          ContainerAPI.updateContext(contextObj, internalObj, iframeHandle, nodeParams, pathParams, searchParams);
         }
       };
 
@@ -160,7 +224,7 @@
             ContainerAPI.notifyAlertClosed(id, dismissKey, iframeHandle);
           }
         }
-      }
+      };
 
       thisComponent.notifyConfirmationModalClosed = (result) => {
         // check if thisComponent is in dom
@@ -171,7 +235,7 @@
             ContainerAPI.notifyConfirmationModalClosed(!!result, iframeHandle);
           }
         }
-      }
+      };
 
       containerService.registerContainer(thisComponent);
       webcomponentService.thisComponent = thisComponent;
@@ -193,6 +257,19 @@
           // removing mainComponent
           thisComponent.innerHTML = '';
         }
+
+        if (!skipInitCheck) {
+          (thisComponent.getNoShadow() ? thisComponent : mainComponent).addEventListener('wc_ready', () => {
+            if (
+              !(thisComponent.getNoShadow() ? thisComponent : mainComponent)._luigi_mfe_webcomponent
+                ?.deferLuigiClientWCInit
+            ) {
+              thisComponent.initialized = true;
+              webcomponentService.dispatchLuigiEvent(Events.INITIALIZED, {});
+            }
+          });
+        }
+
         const webComponentValue = GenericHelperFunctions.checkWebcomponentValue(webcomponent);
         webcomponentService.renderWebComponent(
           viewurl,
@@ -202,7 +279,7 @@
         );
       } else {
         if (!thisComponent.getNoShadow()) {
-          // removeing mainComponent
+          // removing mainComponent
           thisComponent.innerHTML = '';
           const shadow = thisComponent.attachShadow({ mode: 'open' });
           shadow.append(mainComponent);
@@ -213,34 +290,69 @@
         setTimeout(() => {
           webcomponentService.dispatchLuigiEvent(Events.INITIALIZED, {});
         });
-      } else if (webcomponent) {
-        (thisComponent.getNoShadow() ? thisComponent : mainComponent).addEventListener('wc_ready', () => {
-          if (
-            !(thisComponent.getNoShadow() ? thisComponent : mainComponent)._luigi_mfe_webcomponent?.deferLuigiClientWCInit
-          ) {
-            thisComponent.initialized = true;
-            webcomponentService.dispatchLuigiEvent(Events.INITIALIZED, {});
-          }
+      }
+
+      if (!webcomponent || webcomponent === 'false') {
+        setTimeout(() => {
+          createIframe();
         });
       }
-      containerInitialized = true;
       thisComponent.containerInitialized = true;
+      containerInitialized = true;
     }
   };
 
   onMount(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const thisComponent: any = mainComponent.parentNode;
+    thisComponent = mainComponent.parentNode;
     thisComponent.iframeHandle = iframeHandle;
     thisComponent.init = () => {
       initialize(thisComponent);
     };
-    if (!deferInit) {
+    if (!deferInit && viewurl) {
       initialize(thisComponent);
     }
   });
 
+  $: {
+    if (!containerInitialized && viewurl && !deferInit && thisComponent) {
+      initialize(thisComponent);
+    }
+  }
+
   onDestroy(async () => {});
+
+  function createIframe(): void {
+    if (!mainComponent) {
+      return;
+    }
+    const iframe = document.createElement('iframe');
+    iframe.title = label || '';
+    iframe.src = viewurl;
+    const allow = getAllowRules(allowRules);
+    if (allow) {
+      iframe.allow = allow;
+    }
+    if (sandboxRules) {
+      iframe.sandbox.value = sandboxRules.join(' ');
+    }
+
+    const interceptor = thisComponent?.iframeCreationInterceptor;
+    if (typeof interceptor === 'function') {
+      try {
+        interceptor(
+          iframe,
+          thisComponent?.viewGroup,
+          thisComponent?._luigiCurrentNode,
+          thisComponent?._luigiMicroFrontendType
+        );
+      } catch (err) {
+        console.error('Error applying iframe creation interceptor: ', err);
+      }
+    }
+
+    iframeHandle.iframe = iframe;
+    mainComponent.appendChild(iframe);
+  }
 </script>
 
 <main bind:this={mainComponent} class={webcomponent ? undefined : 'lui-isolated'}>
@@ -258,13 +370,6 @@
           line-height: 0;
         }
       </style>
-      <iframe
-        bind:this={iframeHandle.iframe}
-        src={viewurl}
-        title={label}
-        allow={getAllowRules(allowRules)}
-        sandbox={sandboxRules ? sandboxRules.join(' ') : undefined}
-      />
     {/if}
   {/if}
 </main>

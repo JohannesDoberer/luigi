@@ -1,15 +1,13 @@
 import { LuigiConfig } from '.';
 import { GenericHelpers, RoutingHelpers } from '../utilities/helpers';
+
 /**
+ * Use these functions for navigation-related features.
+ * @default Luigi.routing()
  * @name Routing
+ * @class
  */
 class LuigiRouting {
-  /**
-   * Use these functions for navigation-related features.
-   * @name Routing
-   */
-  constructor() {}
-
   /**
    * Get search parameter from URL as an object.
    * @memberof Routing
@@ -20,15 +18,24 @@ class LuigiRouting {
    */
   getSearchParams() {
     const queryParams = {};
-    const url = new URL(location);
+    const DENYLIST = ['__proto__', 'constructor', 'prototype'];
+
+    const url = new URL(location.href);
+    let entries;
+
     if (LuigiConfig.getConfigValue('routing.useHashRouting')) {
-      for (const [key, value] of new URLSearchParams(url.hash.split('?')[1])) {
-        queryParams[key] = value;
-      }
+      const hashQuery = url.hash.split('?')[1];
+      entries = hashQuery ? new URLSearchParams(hashQuery).entries() : [];
     } else {
-      for (const [key, value] of url.searchParams.entries()) {
-        queryParams[key] = value;
+      entries = url.searchParams.entries();
+    }
+
+    for (const [key, value] of entries) {
+      if (DENYLIST.some((denied) => key === denied)) {
+        console.warn(`Blocked because of potentially dangerous query param: ${key}`);
+        continue;
       }
+      queryParams[key] = value;
     }
     return queryParams;
   }
@@ -41,10 +48,11 @@ class LuigiRouting {
    * @since 1.16.1
    * @param {Object} params
    * @param {boolean} keepBrowserHistory
+   * @param {boolean} preventLuigiConfigUpdate - If true, the configChanged function will be triggered (since 2.29.0). By default it is set to `false`.
    * @example
    * Luigi.routing().addSearchParams({luigi:'rocks', mario:undefined}, false);
    */
-  addSearchParams(params, keepBrowserHistory) {
+  addSearchParams(params, keepBrowserHistory, preventLuigiConfigUpdate = false) {
     if (!GenericHelpers.isObject(params)) {
       console.log('Params argument must be an object');
       return;
@@ -57,7 +65,9 @@ class LuigiRouting {
     }
 
     this.handleBrowserHistory(keepBrowserHistory, url);
-    LuigiConfig.configChanged();
+    if (!preventLuigiConfigUpdate) {
+      LuigiConfig.configChanged();
+    }
   }
 
   addNodeParams(params, keepBrowserHistory) {

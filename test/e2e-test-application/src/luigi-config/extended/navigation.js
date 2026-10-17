@@ -23,6 +23,7 @@ class Navigation {
       preloadUrl: '/sampleapp.html#/preload'
     },
     view_group_components: {
+      noClientCheck: true,
       preloadUrl: '/sampleapp.html#/view-group/preload'
     }
   };
@@ -216,7 +217,7 @@ class Navigation {
     },
     {
       externalLink: {
-        url: 'https://github.com/SAP/luigi',
+        url: 'https://github.com/luigi-project/luigi',
         sameWindow: true
       },
       label: 'Git',
@@ -470,7 +471,7 @@ class Navigation {
       {
         label: 'Luigi in Github',
         externalLink: {
-          url: 'https://github.com/SAP/luigi',
+          url: 'https://github.com/luigi-project/luigi',
           sameWindow: false
         }
       }
@@ -510,6 +511,7 @@ class Navigation {
 
   appSwitcher = {
     showMainAppEntry: true,
+    keepMainTitle: false,
     items: [
       {
         title: 'Application One',

@@ -33,6 +33,7 @@ describe('attachWC', () => {
 
   beforeEach(() => {
     service = new WebComponentService();
+    service.thisComponent = {};
   });
 
   afterEach(() => {
@@ -57,7 +58,8 @@ describe('attachWC', () => {
     expect(service.initWC).toHaveBeenCalled();
     expect(createElementSpy).toHaveBeenCalledWith(wc_id);
     expect(wc_container.replaceChild).toHaveBeenCalledWith(innerWCElement, wcItemPlaceholder);
-    expect(dispatchEventSpy).toHaveBeenCalledWith(new Event('wc_ready'));
+    expect(dispatchEventSpy).toHaveBeenCalled();
+    expect(dispatchEventSpy.mock.calls[0][0].type).toBe('wc_ready');
   });
 
   it('wc_container does NOT contain wcItemPlaceholder', () => {
@@ -90,7 +92,8 @@ describe('attachWC', () => {
 
     // Assert
     expect(wc_container.replaceChild).toHaveBeenCalledWith(innerWCElement, wcItemPlaceholder);
-    expect(dispatchEventSpy).toHaveBeenCalledWith(new Event('wc_ready'));
+    expect(dispatchEventSpy).toHaveBeenCalled();
+    expect(dispatchEventSpy.mock.calls[0][0].type).toBe('wc_ready');
   });
 
   it('_luigi_node provided', () => {
@@ -109,7 +112,8 @@ describe('attachWC', () => {
     expect(wc_container.replaceChild).toHaveBeenCalledWith(innerWCElement, wcItemPlaceholder);
     expect((wc_container as any)._luigi_mfe_webcomponent).toEqual(innerWCElement);
 
-    expect(dispatchEventSpy).toHaveBeenCalledWith(new Event('wc_ready'));
+    expect(dispatchEventSpy).toHaveBeenCalled();
+    expect(dispatchEventSpy.mock.calls[0][0].type).toBe('wc_ready');
   });
 });
 
@@ -162,7 +166,7 @@ describe('createClientAPI', () => {
         link: '/test/route',
         nodeParams: {}
       };
-      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload);
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload, undefined);
     });
 
     it.each([
@@ -205,7 +209,7 @@ describe('createClientAPI', () => {
         nodeParams: {}
       };
 
-      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload);
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload, undefined);
     });
 
     it('test linkManager: openAsDrawer', () => {
@@ -231,7 +235,7 @@ describe('createClientAPI', () => {
           size: 's'
         }
       };
-      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload);
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload, undefined);
     });
 
     it('test linkManager: openAsModal', () => {
@@ -251,13 +255,14 @@ describe('createClientAPI', () => {
         fromParent: false,
         fromContext: null,
         fromVirtualTreeRoot: false,
-        link: '/test/route',
+        link: route,
         nodeParams: {},
         modal: {
           size: 's'
         }
       };
-      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload);
+
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload, expect.any(Function));
     });
 
     it('test linkManager: openAsSplitView', () => {
@@ -283,7 +288,7 @@ describe('createClientAPI', () => {
           size: 's'
         }
       };
-      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload);
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload, undefined);
     });
 
     it('test linkManager fromClosestContext', () => {
@@ -306,7 +311,7 @@ describe('createClientAPI', () => {
         link: '/test/route',
         nodeParams: {}
       };
-      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload);
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload, undefined);
     });
 
     it('test linkManager fromContext', () => {
@@ -329,7 +334,7 @@ describe('createClientAPI', () => {
         link: '/test/route',
         nodeParams: {}
       };
-      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload);
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload, undefined);
     });
 
     it('test linkManager fromVirtualTreeRoot', () => {
@@ -352,7 +357,7 @@ describe('createClientAPI', () => {
         link: '/test/route',
         nodeParams: {}
       };
-      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload);
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload, undefined);
     });
 
     it('test linkManager currentRoute', () => {
@@ -378,8 +383,7 @@ describe('createClientAPI', () => {
           Events.GET_CURRENT_ROUTE_REQUEST,
           service.thisComponent,
           expectedPayload,
-          expect.any(Function),
-          'callback'
+          expect.any(Function)
         );
         expect(result).toBe('/current/route');
       });
@@ -408,8 +412,7 @@ describe('createClientAPI', () => {
           Events.GET_CURRENT_ROUTE_REQUEST,
           service.thisComponent,
           expectedPayload,
-          expect.any(Function),
-          'callback'
+          expect.any(Function)
         );
         expect(result).toBe('/route');
       });
@@ -435,7 +438,34 @@ describe('createClientAPI', () => {
         link: '/test/route',
         nodeParams: { params: 'some params' }
       };
-      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload);
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.NAVIGATION_REQUEST, expectedPayload, undefined);
+    });
+
+    it('test linkManager updateModalPathInternalNavigation', () => {
+      const history = true;
+      const link = '/test/route';
+      const modal = { title: 'Some modal' };
+
+      // mock and spy on functions
+      service.containerService.dispatch = jest.fn();
+      const dispatchEventSpy = jest.spyOn(service, 'dispatchLuigiEvent');
+
+      // act
+      const clientAPI = service.createClientAPI(undefined, 'nodeId', 'wc_id', 'component');
+      clientAPI.linkManager().updateModalPathInternalNavigation(link, modal, history);
+
+      // assert
+      const expectedPayload = {
+        fromClosestContext: false,
+        fromContext: null,
+        fromParent: false,
+        fromVirtualTreeRoot: false,
+        history,
+        link,
+        modal,
+        nodeParams: {}
+      };
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.UPDATE_MODAL_PATH_DATA_REQUEST, expectedPayload);
     });
 
     it('test linkManager updateTopNavigation', () => {
@@ -489,6 +519,26 @@ describe('createClientAPI', () => {
       expect(hasBack).toEqual(false);
     });
 
+    it('test linkManager updateModalSettings', () => {
+      const addHistoryEntry = true;
+      const updatedModalSettings = { title: 'Some modal' };
+
+      // mock and spy on functions
+      service.containerService.dispatch = jest.fn();
+      const dispatchEventSpy = jest.spyOn(service, 'dispatchLuigiEvent');
+
+      // act
+      const clientAPI = service.createClientAPI(undefined, 'nodeId', 'wc_id', 'component');
+      clientAPI.linkManager().updateModalSettings(updatedModalSettings, addHistoryEntry);
+
+      // assert
+      const expectedPayload = {
+        addHistoryEntry,
+        updatedModalSettings
+      };
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.UPDATE_MODAL_SETTINGS_REQUEST, expectedPayload);
+    });
+
     it('test linkManager pathExists: should resolve with true if path exists', () => {
       // Mock and spy on functions
       service.containerService.dispatch = jest.fn((event, component, options, callback) => {
@@ -503,11 +553,10 @@ describe('createClientAPI', () => {
       return pathExistsPromise.then((result) => {
         // Check if the dispatch function was called with the correct arguments
         expect(service.containerService.dispatch).toHaveBeenCalledWith(
-          Events.PATH_EXISTS_REQUEST,
+          Events.CHECK_PATH_EXISTS_REQUEST,
           service.thisComponent,
-          {},
-          expect.any(Function),
-          'callback'
+          expect.any(Object),
+          expect.any(Function)
         );
         // Check if the function resolves with the correct value
         expect(result).toBe(true);
@@ -530,11 +579,10 @@ describe('createClientAPI', () => {
         .catch((error) => {
           // Check if the dispatch function was called with the correct arguments
           expect(service.containerService.dispatch).toHaveBeenCalledWith(
-            Events.PATH_EXISTS_REQUEST,
+            Events.CHECK_PATH_EXISTS_REQUEST,
             service.thisComponent,
-            {},
-            expect.any(Function),
-            'callback'
+            expect.any(Object),
+            expect.any(Function)
           );
           expect(error).toBe(false);
         });
@@ -557,7 +605,7 @@ describe('createClientAPI', () => {
       clientAPI.uxManager().showAlert(alertSettings);
 
       // assert
-      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.ALERT_REQUEST, alertSettings);
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.ALERT_REQUEST, alertSettings, expect.any(Function));
     });
 
     it('test uxManager getCurrentTheme', () => {
@@ -590,7 +638,7 @@ describe('createClientAPI', () => {
       const settings = { confirmationSettings: 'settings' };
       const mockEventData = { result: 'confirmation data' };
 
-      service.containerService.dispatch = jest.fn((eventType, target, eventData, callback, callbackName) => {
+      service.containerService.dispatch = jest.fn((eventType, target, eventData, callback) => {
         callback(mockEventData);
       });
 
@@ -604,8 +652,7 @@ describe('createClientAPI', () => {
           Events.SHOW_CONFIRMATION_MODAL_REQUEST,
           service.thisComponent,
           settings,
-          expect.any(Function),
-          'callback'
+          expect.any(Function)
         );
         expect(result).toEqual(undefined);
       });
@@ -615,7 +662,7 @@ describe('createClientAPI', () => {
       // mock and spy on data/functions
       const settings = { confirmationSettings: 'settings' };
 
-      service.containerService.dispatch = jest.fn((eventType, target, eventData, callback, callbackName) => {
+      service.containerService.dispatch = jest.fn((eventType, target, eventData, callback) => {
         callback(false);
       });
 
@@ -672,10 +719,10 @@ describe('createClientAPI', () => {
 
       // act
       const clientAPI = service.createClientAPI(undefined, 'nodeId', 'wc_id', 'component');
-      clientAPI.uxManager().collapseLeftSideNav();
+      clientAPI.uxManager().collapseLeftSideNav(true);
 
       // assert
-      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.COLLAPSE_LEFT_NAV_REQUEST, {});
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.COLLAPSE_LEFT_NAV_REQUEST, { state: true });
     });
 
     it('test uxManager setDocumentTitle', () => {
@@ -704,29 +751,45 @@ describe('createClientAPI', () => {
       expect(result).toEqual('Title');
     });
 
-    it('test uxManager getDirtyStatus', () => {
+    it.each([true, false])('test uxManager getDirtyStatus', (value) => {
       // mock and spy on data/functions
       service.thisComponent = document.createElement('div');
-      service.thisComponent.dirtyStatus = true;
+      service.thisComponent.dirtyStatus = value;
 
       // act
       const clientAPI = service.createClientAPI(undefined, 'nodeId', 'wc_id', 'component');
       const result = clientAPI.uxManager().getDirtyStatus();
 
       // assert
-      expect(result).toEqual(true);
+      expect(result).toEqual(value);
     });
 
-    it('test uxManager getDirtyStatus', () => {
-      // mock and spy on data/functions
-      service.thisComponent = document.createElement('div');
+    it.each([true, false])('test uxManager setDirtyStatus', (value) => {
+      // mock and spy on functions
+      service.containerService.dispatch = jest.fn();
+      const dispatchEventSpy = jest.spyOn(service, 'dispatchLuigiEvent');
 
       // act
       const clientAPI = service.createClientAPI(undefined, 'nodeId', 'wc_id', 'component');
-      const result = clientAPI.uxManager().getDirtyStatus();
+      clientAPI.uxManager().setDirtyStatus(value);
 
       // assert
-      expect(result).toEqual(false);
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.SET_DIRTY_STATUS_REQUEST, { dirty: value });
+    });
+
+    it('test uxManager setCurrentLocale', () => {
+      const locale = 'en';
+
+      // mock and spy on functions
+      service.containerService.dispatch = jest.fn();
+      const dispatchEventSpy = jest.spyOn(service, 'dispatchLuigiEvent');
+
+      // act
+      const clientAPI = service.createClientAPI(undefined, 'nodeId', 'wc_id', 'component');
+      clientAPI.uxManager().setCurrentLocale(locale);
+
+      // assert
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.SET_CURRENT_LOCALE_REQUEST, { currentLocale: locale });
     });
 
     it('test uxManager removeBackdrop', () => {
@@ -740,6 +803,32 @@ describe('createClientAPI', () => {
 
       // assert
       expect(dispatchEventSpy).toHaveBeenCalledWith(Events.REMOVE_BACKDROP_REQUEST, {});
+    });
+
+    it('test uxManager showLoadingIndicator', () => {
+      // mock and spy on functions
+      service.containerService.dispatch = jest.fn();
+      const dispatchEventSpy = jest.spyOn(service, 'dispatchLuigiEvent');
+
+      // act
+      const clientAPI = service.createClientAPI(undefined, 'nodeId', 'wc_id', 'component');
+      clientAPI.uxManager().showLoadingIndicator();
+
+      // assert
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.SHOW_LOADING_INDICATOR_REQUEST, {});
+    });
+
+    it('test uxManager hideLoadingIndicator', () => {
+      // mock and spy on functions
+      service.containerService.dispatch = jest.fn();
+      const dispatchEventSpy = jest.spyOn(service, 'dispatchLuigiEvent');
+
+      // act
+      const clientAPI = service.createClientAPI(undefined, 'nodeId', 'wc_id', 'component');
+      clientAPI.uxManager().hideLoadingIndicator();
+
+      // assert
+      expect(dispatchEventSpy).toHaveBeenCalledWith(Events.HIDE_LOADING_INDICATOR_REQUEST, {});
     });
 
     it('test uxManager hideAppLoadingIndicator', () => {
@@ -897,7 +986,11 @@ describe('createClientAPI', () => {
     clientAPI.addNodeParams(params, keepBrowserHistory);
 
     // assert
-    expect(dispatchEventSpy).toHaveBeenCalledWith(Events.ADD_NODE_PARAMS_REQUEST, { params, keepBrowserHistory });
+    expect(dispatchEventSpy).toHaveBeenCalledWith(Events.ADD_NODE_PARAMS_REQUEST, {
+      params,
+      data: params,
+      keepBrowserHistory
+    });
   });
 
   it('test addNodeParams isSpecial TRUE', () => {
@@ -1052,6 +1145,43 @@ describe('createClientAPI', () => {
     expect(result).toEqual({});
   });
 
+  it('test addCoreSearchParams', () => {
+    // mock and spy on functions
+    service.containerService.dispatch = jest.fn();
+    const dispatchEventSpy = jest.spyOn(service, 'dispatchLuigiEvent');
+    const params = { luigi: 'rocks' };
+    const keepBrowserHistory = true;
+
+    // act
+    const clientAPI = service.createClientAPI(undefined, 'nodeId', 'wc_id', 'component', false);
+    clientAPI.addCoreSearchParams(params, keepBrowserHistory);
+
+    // assert
+    expect(dispatchEventSpy).toHaveBeenCalledWith(Events.ADD_SEARCH_PARAMS_REQUEST, {
+      data: params,
+      keepBrowserHistory,
+      preventLuigiConfigUpdate: false
+    });
+  });
+
+  it('test addCoreSearchParams with no arguments', () => {
+    // mock and spy on functions
+    service.containerService.dispatch = jest.fn();
+    const dispatchEventSpy = jest.spyOn(service, 'dispatchLuigiEvent');
+    const keepBrowserHistory = true;
+
+    // act
+    const clientAPI = service.createClientAPI(undefined, 'nodeId', 'wc_id', 'component', false);
+    clientAPI.addCoreSearchParams();
+
+    // assert
+    expect(dispatchEventSpy).toHaveBeenCalledWith(Events.ADD_SEARCH_PARAMS_REQUEST, {
+      data: {},
+      keepBrowserHistory,
+      preventLuigiConfigUpdate: false
+    });
+  });
+
   it('test getPathParams WITH attribute', () => {
     // mock and spy on data/functions
     service.thisComponent = document.createElement('div');
@@ -1142,6 +1272,7 @@ describe('initWC', () => {
 
   beforeEach(() => {
     service = new WebComponentService();
+    service.thisComponent = {};
   });
   afterEach(() => {
     jest.clearAllMocks();
@@ -1190,6 +1321,54 @@ describe('initWC', () => {
     expect(urlSpy).toHaveBeenNthCalledWith(2, documentOrigin, baseURIMocked);
     expect(urlSpy).toHaveBeenNthCalledWith(3, documentOrigin, baseURIMocked);
     expect(urlSpy).toHaveBeenNthCalledWith(4, './', urlSpyMockData);
+  });
+
+  it('should call webcomponentCreationInterceptor if defined on thisComponent', () => {
+    // Arrange
+    const wc = { context: null, LuigiClient: null };
+    const interceptorFn = jest.fn();
+    const currentNode = { label: 'Test Node' };
+    const mfeType = 'main';
+    service.thisComponent = {
+      webcomponentCreationInterceptor: interceptorFn,
+      currentNode,
+      _luigiMicroFrontendType: mfeType
+    };
+    const evtBusEl = {};
+
+    // Act
+    service.initWC(wc, wc_id, evtBusEl, viewUrl, ctx, nodeId, isCompoundChild);
+
+    // Assert
+    expect(interceptorFn).toHaveBeenCalledWith(wc, currentNode, ctx, nodeId, false);
+  });
+
+  it('should not throw if webcomponentCreationInterceptor is not defined', () => {
+    // Arrange
+    const wc = { context: null, LuigiClient: null };
+    const evtBusEl = {};
+    service.thisComponent = {};
+
+    // Act & Assert
+    expect(() => {
+      service.initWC(wc, wc_id, evtBusEl, viewUrl, ctx, nodeId, isCompoundChild);
+    }).not.toThrow();
+  });
+
+  it('should not call webcomponentCreationInterceptor if it is not a function', () => {
+    // Arrange
+    const wc = { context: null, LuigiClient: null };
+    const evtBusEl = {};
+    service.thisComponent = {
+      webcomponentCreationInterceptor: 'not-a-function',
+      currentNode: { label: 'Node' },
+      _luigiMicroFrontendType: 'main'
+    };
+
+    // Act & Assert
+    expect(() => {
+      service.initWC(wc, wc_id, evtBusEl, viewUrl, ctx, nodeId, isCompoundChild);
+    }).not.toThrow();
   });
 });
 
@@ -1354,6 +1533,7 @@ describe('createCompoundContainerAsync', () => {
 
   beforeEach(() => {
     service = new WebComponentService();
+    service.thisComponent = {};
   });
 
   afterEach(() => {
@@ -1442,6 +1622,7 @@ describe('registerWCFromUrl', () => {
 
   beforeEach(() => {
     service = new WebComponentService();
+    service.thisComponent = {};
   });
 
   afterEach(() => {

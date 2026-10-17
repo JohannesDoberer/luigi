@@ -27,6 +27,7 @@
   let moreButton;
   let moreLink;
   let isBtpToolLayoutActive;
+  let unSubscribeFn;
 
   //TODO refactor
   const __this = {
@@ -127,7 +128,7 @@
           hasMoreBtnElements = true;
         } else {
           // Hide tab from 'more' dropdown
-          document.querySelector('li[uid="' + uid + '"]').classList.add('hide_element');
+          document.querySelector('li[uid="' + uid + '"]')?.classList.add('hide_element');
         }
       });
 
@@ -141,7 +142,7 @@
    */
   const clearTabNav = () => {
     // Check if tabs container header exists
-    if (tabsContainerHeader !== undefined) {
+    if (tabsContainerHeader) {
       // Get all tab elements
       const tabs = [...tabsContainerHeader.children];
 
@@ -188,7 +189,7 @@
       LuigiConfig.getConfigBooleanValue('settings.btpToolLayout') &&
       LuigiConfig.getConfigBooleanValue('settings.experimental.btpToolLayout');
     handleHorizontalNavHeightChange();
-    StateHelpers.doOnStoreChange(store, () => {
+    unSubscribeFn = StateHelpers.doOnStoreChange(store, () => {
       setTabNavData();
     }, ['navigation.viewgroupdata']);
   });
@@ -196,6 +197,7 @@
   onDestroy(() => {
     resetResizeObserver();
     document.documentElement.style.removeProperty('--luigi__horizontal-nav--live-height');
+    unSubscribeFn();
   });
 
   // [svelte-upgrade warning]
@@ -277,7 +279,7 @@
    * Info: Nodes are grouped in Category or non - category groups for the tab nav logic.
    * A Category node group object usually has the Category Name as a key
    * A non-Category node usually would have an undefined key or a virtualGroupPrefix
-   * @param {string} key - The key to check.
+   * @param {string} key - the key to check
    * @returns {boolean} Returns true if the key is 'undefined' or starts with the virtualGroupPrefix; otherwise, returns false.
    */
   function isSingleTabItem(key, nodes) {
@@ -293,7 +295,7 @@
 
   /**
    * Checks if any of the nodes is a tab item with sub-items.
-   * @param {Array<Object>} nodes - An array of nodes to check.
+   * @param {Array<Object>} nodes - an array of nodes to check
    * @returns {boolean} Returns true if any node has a label and is not hidden from navigation; otherwise, returns false.
    */
   function isTabItemWithSubItems(nodes) {
@@ -323,7 +325,7 @@
   /**
    * Finds the node in the provided array of nodes to navigate to based on the category's navigateOnClick property.
    * Search based on navigateOnClick set to true or a string representing the desired pathSegment to navigate to.
-   * @param {Array<Object>} nodes - An array of nodes to search.
+   * @param {Array<Object>} nodes - an array of nodes to search
    * @returns {Object|undefined} Returns the first node with a truthy navigateOnClick property, or undefined if not found.
    */
   function getNodeToNavigateTo(nodes) {
@@ -341,7 +343,7 @@
 
   /**
    * Checks if any of the nodes is a tab item with multiple clickable areas.
-   * @param {Array<Object>} nodes - An array of nodes to check.
+   * @param {Array<Object>} nodes - an array of nodes to check
    * @returns {boolean} Returns true if any node has a category with a truthy navigateOnClick property; otherwise, returns false.
    */
   function isMultiClickAreaTabItem(nodes) {
@@ -385,7 +387,6 @@
     {/if}
     <nav
       class="fd-icon-tab-bar fd-icon-tab-bar--lg"
-      role="tablist"
       on:toggleDropdownState={(event) => toggleDropdownState(event.name)}
     >
       <div
@@ -403,6 +404,7 @@
                   <span role="presentation" class="fd-icon-tab-bar__item" uid="{index}-{index2}" {isSelected}>
                     <a
                       role="tab"
+                      tabindex="0"
                       class="fd-icon-tab-bar__tab"
                       href={getRouteLink(node)}
                       data-testid={NavigationHelpers.getTestId(node)}
@@ -435,8 +437,8 @@
               >
                 <!-- svelte-ignore a11y-missing-attribute -->
                 <a
-                  role="tab"
                   class="fd-icon-tab-bar__tab"
+                  role="tab"
                   tabindex="0"
                   aria-selected={isSelectedCat(key, selectedNodeForTabNav)}
                   href={getRouteLink(nodeToNavigateTo)}
@@ -454,6 +456,9 @@
                         aria-haspopup="true"
                         aria-label="open menu button"
                         on:click|preventDefault={() => toggleDropdownState(key)}
+                        on:keyup|preventDefault={(event) => {
+                          (event.key === 'Enter' || event.key === ' ') && toggleDropdownState(key);
+                        }}
                       >
                         <i class="sap-icon--slim-arrow-down" />
                       </button>
@@ -477,6 +482,7 @@
                             <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
                             <!-- svelte-ignore a11y-missing-attribute -->
                             <a
+                              role="tab"
                               tabindex="0"
                               class="fd-list__link fd-icon-tab-bar__list-link"
                               href={getRouteLink(node)}
@@ -497,6 +503,7 @@
               <span
                 class="fd-icon-tab-bar__item fd-icon-tab-bar__item--single-click"
                 {uid}
+                role="presentation"
                 on:click={(event) => event.stopPropagation()}
                 isSelected={isSelectedCat(key, selectedNodeForTabNav)}
               >
@@ -505,10 +512,15 @@
                     <!-- svelte-ignore a11y-missing-attribute -->
                     <a
                       class="fd-icon-tab-bar__tab"
-                      aria-expanded="false"
                       role="tab"
-                      on:click|preventDefault={() => toggleDropdownState(key)}
+                      tabindex="0"
+                      aria-expanded="false"
+                      aria-haspopup="true"
                       aria-selected={isSelectedCat(key, selectedNodeForTabNav)}
+                      on:click|preventDefault={() => toggleDropdownState(key)}
+                      on:keyup|preventDefault={(event) => {
+                        (event.key === 'Enter' || event.key === ' ') && toggleDropdownState(key);
+                      }}
                     >
                       <div class="fd-icon-tab-bar__tab-container">
                         <span class="fd-icon-tab-bar__tag">{$getTranslation(key)}</span>
@@ -535,6 +547,8 @@
                                 data-testid={NavigationHelpers.getTestId(node)}
                                 on:click|preventDefault={() => handleClick(node)}
                                 aria-selected={node === selectedNodeForTabNav}
+                                role="tab"
+                                tabindex="0"
                               >
                                 <span class="fd-list__title">
                                   {getNodeLabel(node)}
@@ -556,12 +570,19 @@
         <span
           class="luigi-tabsMoreButton fd-icon-tab-bar__item fd-icon-tab-bar__item--overflow"
           on:click={(event) => event.stopPropagation()}
+          role="presentation"
           bind:this={moreButton}
         >
           <div class="fd-popover">
             <!-- svelte-ignore a11y-missing-attribute -->
-            <div class="fd-popover__control has-child luigi__more" aria-expanded="false" role="tab">
-              <button class="fd-icon-tab-bar__overflow" on:click|preventDefault={toggleMoreBtn} bind:this={moreLink}>
+            <div class="fd-popover__control has-child luigi__more">
+              <button
+                class="fd-icon-tab-bar__overflow"
+                role="tab"
+                tabindex="0"
+                on:click|preventDefault={toggleMoreBtn}
+                bind:this={moreLink}
+              >
                 <span class="label fd-icon-tab-bar__overflow-text">More</span>
                 <span class="sap-icon--slim-arrow-down" />
               </button>
@@ -575,6 +596,8 @@
                   {#if key === 'undefined' || key.indexOf(virtualGroupPrefix) === 0}
                     {#each nodes as node, index2}
                       <li class="fd-nested-list__item" uid="{index}-{index2}">
+                        <!-- svelte-ignore a11y-role-supports-aria-props -->
+                        <!-- svelte-ignore a11y_role_supports_aria_props_implicit -->
                         <a
                           href={getRouteLink(node)}
                           class="fd-nested-list__link"
@@ -591,30 +614,30 @@
                     {/each}
                   {:else}
                     <li class="fd-nested-list__item" uid="{index}-0">
-                      <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-                      <div class="fd-nested-list__content has-child" tabindex="0">
+                      <!-- svelte-ignore a11y-role-supports-aria-props -->
+                      <div
+                        class="fd-nested-list__content has-child"
+                        tabindex="0"
+                        role="button"
+                        aria-expanded={dropDownStates[key + index]}
+                        aria-haspopup="true"
+                        aria-selected={isSelectedCat(key, selectedNodeForTabNav)}
+                        on:click|preventDefault={() => toggleDropdownState(key + index)}
+                        on:keyup|preventDefault={(event) => {
+                          (event.key === 'Enter' || event.key === ' ') && toggleDropdownState(key + index);
+                        }}
+                      >
                         <!-- svelte-ignore a11y-invalid-attribute -->
+                        <!-- svelte-ignore a11y-role-supports-aria-props -->
                         <a
                           href="javascript:void(null)"
                           tabindex="-1"
                           class="fd-nested-list__link"
                           id="tabnav_list_level1_{index}"
-                          aria-haspopup="true"
-                          aria-expanded={dropDownStates[key + index]}
-                          aria-selected={isSelectedCat(key, selectedNodeForTabNav)}
-                          on:click|preventDefault={() => toggleDropdownState(key + index)}
                         >
                           <span class="fd-nested-list__title">{$getTranslation(key)}</span>
                         </a>
-                        <button
-                          class="fd-button fd-nested-list__button"
-                          href="#"
-                          tabindex="-1"
-                          aria-label="Expand submenu"
-                          aria-haspopup="true"
-                          aria-expanded={dropDownStates[key + index]}
-                          on:click|preventDefault={() => toggleDropdownState(key + index)}
-                        >
+                        <button class="fd-button fd-nested-list__button" aria-label="Toggle submenu" tabindex="-1">
                           <i
                             class={dropDownStates[key + index]
                               ? 'sap-icon--navigation-down-arrow'
@@ -627,6 +650,8 @@
                         {#each nodes as node}
                           {#if node.label}
                             <li class="fd-nested-list__item" aria-labelledby="tabnav_list_level1_{index}">
+                              <!-- svelte-ignore a11y-role-supports-aria-props -->
+                              <!-- svelte-ignore a11y_role_supports_aria_props_implicit -->
                               <a
                                 class="fd-nested-list__link"
                                 href={getRouteLink(node)}

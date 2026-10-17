@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "ssh://github.com/SAP/luigi.git"
+    "url": "ssh://github.com/luigi-project/luigi.git"
   },
   "keywords": [
     "luigi",
@@ -19,8 +19,8 @@
     "microfrontends",
     "testing"
   ],
-  "version": "2.21.1",
+  "version": "2.32.0",
   "engines": {
-    "node": ">=18.19.1"
+    "node": ">=20.19.0"
   }
 }
